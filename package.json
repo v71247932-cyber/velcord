@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "worker:dev": "wrangler dev --port 8787",
-    "build": "tsc -b && vite build",
+    "build": "npm run build:frontend && npm run build:worker",
+    "build:frontend": "tsc -b && vite build",
+    "build:worker": "esbuild src/worker/index.ts --bundle --outfile=dist/_worker.js --platform=node --format=esm --minify --external:cloudflare:*",
     "lint": "eslint .",
     "preview": "vite preview",
     "db:init": "wrangler d1 execute velcord-db --file=./db/schema.sql",
@@ -25,6 +27,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "esbuild": "^0.27.4",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
