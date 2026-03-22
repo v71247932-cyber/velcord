@@ -1,22 +1,19 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../AuthContext';
 import { api } from '../api';
-import type { FriendUser, FriendsData, Group } from '../api';
+import type { FriendsData, Group } from '../api';
 import Avatar from '../components/Avatar';
 import FriendsPanel from './FriendsPanel';
-import ChatPanel from './ChatPanel';
 import GroupChatPanel from './GroupChatPanel';
 import CreateGroupModal from '../components/CreateGroupModal';
 
 type View =
     | { type: 'friends' }
-    | { type: 'dm'; friend: FriendUser }
     | { type: 'group'; group: Group };
 
 export default function MainLayout() {
     const { user, logout } = useAuth();
     const [view, setView] = useState<View>({ type: 'friends' });
-    const [dmList, setDmList] = useState<FriendUser[]>([]);
     const [groups, setGroups] = useState<Group[]>([]);
     const [friendsData, setFriendsData] = useState<FriendsData>({ friends: [], pendingSent: [], pendingReceived: [] });
     const [showCreateGroup, setShowCreateGroup] = useState(false);
@@ -38,20 +35,11 @@ export default function MainLayout() {
         return () => clearInterval(interval);
     }, []);
 
-    function openDM(friend: FriendUser) {
-        setView({ type: 'dm', friend });
-        setDmList(prev => {
-            if (prev.find(f => f.id === friend.id)) return prev;
-            return [friend, ...prev];
-        });
-    }
-
     function openGroup(group: Group) {
         setView({ type: 'group', group });
     }
 
     const pendingCount = friendsData.pendingReceived.length;
-    const currentFriend = view.type === 'dm' ? view.friend : null;
     const currentGroup = view.type === 'group' ? view.group : null;
 
     return (
@@ -109,13 +97,16 @@ export default function MainLayout() {
                 </div>
 
                 <div className="dm-list">
-                    <div className="sidebar-section-label" style={{ display: 'none' }}>Direct Messages</div>
-
                     {/* Groups Section */}
                     <div className="sidebar-section-header">
                         <span className="sidebar-section-label">GROUPS</span>
                         <button className="add-section-btn" onClick={() => setShowCreateGroup(true)}>+</button>
                     </div>
+                    {groups.length === 0 && (
+                        <p style={{ padding: '0 8px', fontSize: 12, color: 'var(--text-muted)' }}>
+                            No groups yet. Create one with your friends!
+                        </p>
+                    )}
                     {groups.map(g => (
                         <div
                             key={g.id}
@@ -127,31 +118,14 @@ export default function MainLayout() {
                         </div>
                     ))}
 
-                    <div className="sidebar-section-label" style={{ marginTop: 16 }}>DIRECT MESSAGES</div>
-                    {dmList.length === 0 && (
-                        <p style={{ padding: '8px', fontSize: 13, color: 'var(--text-muted)' }}>
-                            No recent conversations
+                    <div className="sidebar-section-label" style={{ marginTop: 24 }}>FRIENDS</div>
+                    {friendsData.friends.length === 0 && (
+                        <p style={{ padding: '0 8px', fontSize: 13, color: 'var(--text-muted)' }}>
+                            No friends yet
                         </p>
                     )}
-                    {dmList.map(f => (
-                        <div
-                            key={f.id}
-                            className={`dm-item ${currentFriend?.id === f.id ? 'active' : ''}`}
-                            onClick={() => openDM(f)}
-                            id={`dm-${f.id}`}
-                        >
-                            <Avatar name={f.username} color={f.avatarColor} size="sm" />
-                            <span className="dm-name">{f.username}</span>
-                        </div>
-                    ))}
-
-                    <div className="sidebar-section-label" style={{ marginTop: 16 }}>FRIENDS</div>
                     {friendsData.friends.map(f => (
-                        <div
-                            key={f.id}
-                            className={`dm-item ${currentFriend?.id === f.id ? 'active' : ''}`}
-                            onClick={() => openDM(f)}
-                        >
+                        <div key={f.id} className="dm-item disabled-item" title="DMs are disabled. Create a group to chat!">
                             <Avatar name={f.username} color={f.avatarColor} size="sm" />
                             <span className="dm-name">{f.username}</span>
                         </div>
@@ -176,16 +150,7 @@ export default function MainLayout() {
                             <span>👥</span>
                             <span>Friends</span>
                         </div>
-                        <FriendsPanel onOpenDM={openDM} />
-                    </>
-                )}
-                {view.type === 'dm' && currentFriend && (
-                    <>
-                        <div className="content-header">
-                            <Avatar name={currentFriend.username} color={currentFriend.avatarColor} size="sm" />
-                            <span>{currentFriend.username}</span>
-                        </div>
-                        <ChatPanel key={currentFriend.id} friend={currentFriend} />
+                        <FriendsPanel />
                     </>
                 )}
                 {view.type === 'group' && currentGroup && (
@@ -208,7 +173,6 @@ export default function MainLayout() {
                     onClose={() => setShowCreateGroup(false)}
                     onCreated={(_id) => {
                         load();
-                        // Optional: automatically open the newly created group
                     }}
                 />
             )}
@@ -250,6 +214,10 @@ export default function MainLayout() {
                     background: var(--green);
                     color: white;
                     border-radius: 35%;
+                }
+                .disabled-item {
+                    opacity: 0.6;
+                    cursor: default !important;
                 }
             `}</style>
         </div>
