@@ -762,6 +762,7 @@ body,
   overflow: hidden;
 }
 
+/* ==================== MESSAGES AREA ==================== */
 .messages-area {
   flex: 1;
   overflow-y: auto;
@@ -769,7 +770,116 @@ body,
   display: flex;
   flex-direction: column;
   gap: 12px;
-  /* Increased gap for better distinction */
+}
+
+/* ==================== MOBILE HEADER ==================== */
+.mobile-header {
+  display: none;
+  height: 48px;
+  padding: 0 16px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+  gap: 12px;
+  z-index: 100;
+}
+
+.hamburger-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  z-index: 900;
+  animation: fadeIn 0.2s ease;
+}
+
+/* ==================== RESPONSIVENESS ==================== */
+@media (max-width: 768px) {
+  .mobile-header {
+    display: flex;
+  }
+
+  .nav-sidebar {
+    position: fixed;
+    top: 0;
+    left: -320px;
+    /* Hide off-screen */
+    bottom: 0;
+    z-index: 1000;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 4px 0 12px rgba(0, 0, 0, 0.5);
+  }
+
+  .channel-sidebar {
+    position: fixed;
+    top: 0;
+    left: calc(-320px + var(--icons-width));
+    /* Parallel offset */
+    bottom: 0;
+    z-index: 950;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 4px 0 12px rgba(0, 0, 0, 0.5);
+  }
+
+  .app-layout.sidebar-open .nav-sidebar {
+    transform: translateX(320px);
+  }
+
+  .app-layout.sidebar-open .channel-sidebar {
+    transform: translateX(320px);
+  }
+
+  .app-layout.sidebar-open .sidebar-overlay {
+    display: block;
+  }
+
+  .main-content {
+    width: 100%;
+  }
+
+  .msg-group {
+    max-width: 90%;
+  }
+
+  /* Adjust friends list for mobile */
+  .friend-actions {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .friend-item {
+    padding: 8px;
+  }
+
+  .friends-tabs {
+    overflow-x: auto;
+    white-space: nowrap;
+    justify-content: flex-start;
+  }
+
+  .friends-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .content-header {
+    display: none;
+    /* Mobile header replaces this */
+  }
+
+  .chat-panel {
+    height: calc(100vh - 48px);
+  }
 }
 
 .msg-wrapper {

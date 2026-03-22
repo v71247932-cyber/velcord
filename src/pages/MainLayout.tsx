@@ -20,6 +20,7 @@ export default function MainLayout() {
     const [groups, setGroups] = useState<Group[]>([]);
     const [friendsData, setFriendsData] = useState<FriendsData>({ friends: [], pendingSent: [], pendingReceived: [] });
     const [showCreateGroup, setShowCreateGroup] = useState(false);
+    const [sidebarOpen, setSidebarOpen] = useState(false);
 
     const load = async () => {
         try {
@@ -44,23 +45,46 @@ export default function MainLayout() {
             if (prev.find(f => f.id === friend.id)) return prev;
             return [friend, ...prev];
         });
+        setSidebarOpen(false); // Close on mobile
     }
 
     function openGroup(group: Group) {
         setView({ type: 'group', group });
+        setSidebarOpen(false); // Close on mobile
     }
 
     const pendingCount = friendsData.pendingReceived.length;
     const currentFriend = view.type === 'dm' ? view.friend : null;
     const currentGroup = view.type === 'group' ? view.group : null;
 
+    const getHeaderTitle = () => {
+        if (view.type === 'friends') return 'Friends';
+        if (view.type === 'dm') return `@${view.friend.username}`;
+        if (view.type === 'group') return `# ${view.group.name}`;
+        return 'Velcord';
+    };
+
     return (
-        <div className="app-layout">
+        <div className={`app-layout ${sidebarOpen ? 'sidebar-open' : ''}`}>
+
+            <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />
+
+            {/* Mobile Top Header */}
+            <header className="mobile-header">
+                <button className="hamburger-btn" onClick={() => setSidebarOpen(true)}>
+                    ☰
+                </button>
+                <span style={{ fontWeight: 600 }}>{getHeaderTitle()}</span>
+            </header>
+
             {/* Left navigation icons */}
             <nav className="nav-sidebar">
                 <button
                     className={`nav-icon-btn ${view.type === 'friends' ? 'active' : ''}`}
-                    onClick={() => setView({ type: 'friends' })}
+                    onClick={() => {
+                        setView({ type: 'friends' });
+                        setSidebarOpen(false);
+                    }}
                     title="Friends"
                     id="nav-friends"
                 >
@@ -91,23 +115,18 @@ export default function MainLayout() {
 
                 <button
                     className="nav-icon-btn add-btn"
-                    onClick={() => setShowCreateGroup(true)}
+                    onClick={() => {
+                        setShowCreateGroup(true);
+                        setSidebarOpen(false);
+                    }}
                     title="Create Group"
                 >
                     +
                 </button>
-
-                <div className="nav-bottom">
-                    {/* Logout icon removed from here as requested */}
-                </div>
             </nav>
 
             {/* Channel/DM sidebar */}
             <aside className="channel-sidebar">
-                <div className="sidebar-header" style={{ display: 'none' }}>
-                    {view.type === 'friends' ? '👥 Friends' : ''}
-                </div>
-
                 <div className="dm-list">
                     {/* Groups Section */}
                     <div className="sidebar-section-header">
