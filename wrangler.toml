@@ -7,7 +7,7 @@ pages_build_output_dir = "dist"
 [[d1_databases]]
 binding = "DB"
 database_name = "velcord-db"
-database_id = "REPLACE_WITH_YOUR_D1_ID"
+database_id = "119ccd55-3206-4f10-9494-ee7f352ed255"
 
 [vars]
 JWT_SECRET = "change-this-to-a-random-secret-in-production"
