@@ -13,3 +13,4 @@ database_id = "119ccd55-3206-4f10-9494-ee7f352ed255"
 JWT_SECRET = "change-this-to-a-random-secret-in-production"
 
 # Local dev: wrangler dev --port 8787
+# v1.0.1 - Triggering final build after D1 setup
