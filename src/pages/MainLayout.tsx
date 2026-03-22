@@ -49,13 +49,10 @@ export default function MainLayout() {
                     id="nav-friends"
                 >
                     👥
-                    {pendingCount > 0 && (
-                        <span style={{
-                            position: 'absolute', top: -2, right: -2,
-                            background: 'var(--red)', color: 'white', fontSize: 10,
-                            fontWeight: 700, width: 16, height: 16, borderRadius: '50%',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center'
-                        }}>{pendingCount}</span>
+                    {pendingCount > 0 ? (
+                        <span className="badge">{pendingCount}</span>
+                    ) : (
+                        <span className="badge badge-dot" />
                     )}
                 </button>
 
@@ -77,20 +74,18 @@ export default function MainLayout() {
                 ))}
 
                 <div className="nav-bottom">
-                    <button className="nav-icon-btn" onClick={logout} title="Log out">
-                        🚪
-                    </button>
+                    {/* Logout icon removed from here as requested */}
                 </div>
             </nav>
 
             {/* Channel/DM sidebar */}
             <aside className="channel-sidebar">
-                <div className="sidebar-header">
-                    {view.type === 'friends' ? '👥 Friends' : '💬 Direct Messages'}
+                <div className="sidebar-header" style={{ display: 'none' }}>
+                    {view.type === 'friends' ? '👥 Friends' : ''}
                 </div>
 
                 <div className="dm-list">
-                    <div className="sidebar-section-label">Direct Messages</div>
+                    <div className="sidebar-section-label" style={{ display: 'none' }}>Direct Messages</div>
                     {dmList.length === 0 && (
                         <p style={{ padding: '8px', fontSize: 13, color: 'var(--text-muted)' }}>
                             No recent conversations
@@ -128,7 +123,7 @@ export default function MainLayout() {
                         <div className="user-name">{user!.username}</div>
                         <div className="user-tag" style={{ color: 'var(--green)' }}>● Online</div>
                     </div>
-                    <button className="logout-btn" onClick={logout} title="Log out">⎋</button>
+                    <button className="leave-btn" onClick={logout}>Leave</button>
                 </div>
             </aside>
 

@@ -87,34 +87,28 @@ export default function ChatPanel({ friend }: ChatPanelProps) {
         e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
     }
 
-    // Render messages grouped by sender + time proximity
-    const rendered = messages.map((msg, i) => {
-        const prev = messages[i - 1];
-        const isGrouped = prev &&
-            prev.sender.id === msg.sender.id &&
-            msg.createdAt - prev.createdAt < 300; // 5 min group
-
-        if (isGrouped) {
-            return (
-                <div key={msg.id} className="msg-continuation">
-                    <div className="msg-text">{msg.content}</div>
-                </div>
-            );
-        }
+    const rendered = messages.map((msg) => {
+        const isMe = user && msg.sender.id === user.id;
 
         return (
-            <div key={msg.id} className="msg-group">
-                <div className="msg-avatar-col">
-                    <Avatar name={msg.sender.username} color={msg.sender.avatarColor} size="md" />
-                </div>
-                <div className="msg-content-col">
-                    <div className="msg-header">
-                        <span className="msg-author" style={{ color: msg.sender.avatarColor }}>
-                            {msg.sender.username}
-                        </span>
-                        <span className="msg-time">{formatTime(msg.createdAt)}</span>
+            <div key={msg.id} className="msg-wrapper">
+                <div className={`msg-group ${isMe ? 'msg-group-sent' : 'msg-group-received'}`}>
+                    <div className="msg-avatar-col">
+                        <Avatar
+                            name={msg.sender.username}
+                            color={msg.sender.avatarColor}
+                            size={isMe ? 'sm' : 'md'}
+                        />
                     </div>
-                    <div className="msg-text">{msg.content}</div>
+                    <div className="msg-content-col">
+                        <div className="msg-header">
+                            <span className="msg-author" style={{ color: isMe ? '#fff' : msg.sender.avatarColor }}>
+                                {msg.sender.username}
+                            </span>
+                            <span className="msg-time">{formatTime(msg.createdAt)}</span>
+                        </div>
+                        <div className="msg-text">{msg.content}</div>
+                    </div>
                 </div>
             </div>
         );
@@ -129,7 +123,7 @@ export default function ChatPanel({ friend }: ChatPanelProps) {
                             <Avatar name={friend.username} color={friend.avatarColor} size="lg" />
                         </div>
                         <p>
-                            This is the beginning of your direct message history with <strong>{friend.username}</strong>.
+                            This is the beginning of your history with <strong>{friend.username}</strong>.
                         </p>
                     </div>
                 )}
