@@ -16,7 +16,6 @@ type View =
 export default function MainLayout() {
     const { user, logout } = useAuth();
     const [view, setView] = useState<View>({ type: 'friends' });
-    const [dmList, setDmList] = useState<FriendUser[]>([]);
     const [groups, setGroups] = useState<Group[]>([]);
     const [friendsData, setFriendsData] = useState<FriendsData>({ friends: [], pendingSent: [], pendingReceived: [] });
     const [showCreateGroup, setShowCreateGroup] = useState(false);
@@ -41,10 +40,6 @@ export default function MainLayout() {
 
     function openDM(friend: FriendUser) {
         setView({ type: 'dm', friend });
-        setDmList(prev => {
-            if (prev.find(f => f.id === friend.id)) return prev;
-            return [friend, ...prev];
-        });
         setSidebarOpen(false); // Close on mobile
     }
 
@@ -133,11 +128,6 @@ export default function MainLayout() {
                         <span className="sidebar-section-label">GROUPS</span>
                         <button className="add-section-btn" onClick={() => setShowCreateGroup(true)}>+</button>
                     </div>
-                    {groups.length === 0 && (
-                        <p style={{ padding: '0 8px', fontSize: 12, color: 'var(--text-muted)' }}>
-                            No groups yet.
-                        </p>
-                    )}
                     {groups.map(g => (
                         <div
                             key={g.id}
@@ -150,12 +140,16 @@ export default function MainLayout() {
                     ))}
 
                     <div className="sidebar-section-label" style={{ marginTop: 24 }}>DIRECT MESSAGES</div>
-                    {dmList.length === 0 && (
-                        <p style={{ padding: '0 8px', fontSize: 13, color: 'var(--text-muted)' }}>
-                            No recent conversations
+
+                    {/* List ALL friends here as requested, regardless of online/recent status */}
+                    {[...friendsData.friends, ...friendsData.pendingReceived, ...friendsData.pendingSent].length === 0 && (
+                        <p style={{ padding: '0 16px', fontSize: 13, color: 'var(--text-muted)' }}>
+                            No friends yet
                         </p>
                     )}
-                    {dmList.map(f => (
+
+                    {/* Combine friends and pending lists for the sidebar as requested previously for DMs */}
+                    {[...friendsData.friends, ...friendsData.pendingReceived, ...friendsData.pendingSent].map(f => (
                         <div
                             key={f.id}
                             className={`dm-item ${currentFriend?.id === f.id ? 'active' : ''}`}
@@ -163,7 +157,10 @@ export default function MainLayout() {
                             id={`dm-${f.id}`}
                         >
                             <Avatar name={f.username} color={f.avatarColor} size="sm" />
-                            <span className="dm-name">{f.username}</span>
+                            <div className="sidebar-user-details">
+                                <span className="dm-name">{f.username}</span>
+                                <span className="user-status-dot" style={{ background: friendsData.friends.find(af => af.id === f.id) ? 'var(--green)' : 'var(--text-muted)' }} />
+                            </div>
                         </div>
                     ))}
                 </div>
@@ -259,6 +256,17 @@ export default function MainLayout() {
                     background: var(--green);
                     color: white;
                     border-radius: 35%;
+                }
+                .sidebar-user-details {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    flex: 1;
+                }
+                .user-status-dot {
+                    width: 8px;
+                    height: 8px;
+                    border-radius: 50%;
                 }
             `}</style>
         </div>
