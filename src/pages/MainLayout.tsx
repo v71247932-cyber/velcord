@@ -1,26 +1,38 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../AuthContext';
 import { api } from '../api';
-import type { FriendUser, FriendsData } from '../api';
+import type { FriendUser, FriendsData, Group } from '../api';
 import Avatar from '../components/Avatar';
 import FriendsPanel from './FriendsPanel';
 import ChatPanel from './ChatPanel';
+import GroupChatPanel from './GroupChatPanel';
+import CreateGroupModal from '../components/CreateGroupModal';
 
-type View = { type: 'friends' } | { type: 'dm'; friend: FriendUser };
+type View =
+    | { type: 'friends' }
+    | { type: 'dm'; friend: FriendUser }
+    | { type: 'group'; group: Group };
 
 export default function MainLayout() {
     const { user, logout } = useAuth();
     const [view, setView] = useState<View>({ type: 'friends' });
     const [dmList, setDmList] = useState<FriendUser[]>([]);
+    const [groups, setGroups] = useState<Group[]>([]);
     const [friendsData, setFriendsData] = useState<FriendsData>({ friends: [], pendingSent: [], pendingReceived: [] });
+    const [showCreateGroup, setShowCreateGroup] = useState(false);
+
+    const load = async () => {
+        try {
+            const [f, g] = await Promise.all([
+                api.getFriends(),
+                api.getGroups()
+            ]);
+            setFriendsData(f);
+            setGroups(g);
+        } catch { /* noop */ }
+    };
 
     useEffect(() => {
-        const load = async () => {
-            try {
-                const d = await api.getFriends();
-                setFriendsData(d);
-            } catch { /* noop */ }
-        };
         load();
         const interval = setInterval(load, 5000);
         return () => clearInterval(interval);
@@ -34,9 +46,13 @@ export default function MainLayout() {
         });
     }
 
-    const pendingCount = friendsData.pendingReceived.length;
+    function openGroup(group: Group) {
+        setView({ type: 'group', group });
+    }
 
+    const pendingCount = friendsData.pendingReceived.length;
     const currentFriend = view.type === 'dm' ? view.friend : null;
+    const currentGroup = view.type === 'group' ? view.group : null;
 
     return (
         <div className="app-layout">
@@ -58,20 +74,28 @@ export default function MainLayout() {
 
                 <div className="nav-separator" />
 
-                {/* Recent DM icons */}
-                {dmList.slice(0, 8).map(f => (
+                {/* Groups in the icon sidebar circle icons */}
+                {groups.map(g => (
                     <button
-                        key={f.id}
-                        className={`nav-icon-btn ${currentFriend?.id === f.id ? 'active' : ''}`}
-                        onClick={() => openDM(f)}
-                        title={f.username}
-                        style={{ overflow: 'hidden', background: f.avatarColor, borderRadius: currentFriend?.id === f.id ? '35%' : '50%' }}
+                        key={g.id}
+                        className={`nav-icon-btn ${currentGroup?.id === g.id ? 'active' : ''}`}
+                        onClick={() => openGroup(g)}
+                        title={g.name}
+                        style={{ background: 'var(--bg-accent)', borderRadius: currentGroup?.id === g.id ? '35%' : '50%' }}
                     >
-                        <span style={{ color: 'white', fontWeight: 700, fontSize: 15 }}>
-                            {f.username.charAt(0).toUpperCase()}
+                        <span style={{ color: 'white', fontWeight: 700, fontSize: 13 }}>
+                            {g.name.substring(0, 2).toUpperCase()}
                         </span>
                     </button>
                 ))}
+
+                <button
+                    className="nav-icon-btn add-btn"
+                    onClick={() => setShowCreateGroup(true)}
+                    title="Create Group"
+                >
+                    +
+                </button>
 
                 <div className="nav-bottom">
                     {/* Logout icon removed from here as requested */}
@@ -86,6 +110,24 @@ export default function MainLayout() {
 
                 <div className="dm-list">
                     <div className="sidebar-section-label" style={{ display: 'none' }}>Direct Messages</div>
+
+                    {/* Groups Section */}
+                    <div className="sidebar-section-header">
+                        <span className="sidebar-section-label">GROUPS</span>
+                        <button className="add-section-btn" onClick={() => setShowCreateGroup(true)}>+</button>
+                    </div>
+                    {groups.map(g => (
+                        <div
+                            key={g.id}
+                            className={`dm-item ${currentGroup?.id === g.id ? 'active' : ''}`}
+                            onClick={() => openGroup(g)}
+                        >
+                            <div className="group-icon-sm">#</div>
+                            <span className="dm-name">{g.name}</span>
+                        </div>
+                    ))}
+
+                    <div className="sidebar-section-label" style={{ marginTop: 16 }}>DIRECT MESSAGES</div>
                     {dmList.length === 0 && (
                         <p style={{ padding: '8px', fontSize: 13, color: 'var(--text-muted)' }}>
                             No recent conversations
@@ -103,7 +145,7 @@ export default function MainLayout() {
                         </div>
                     ))}
 
-                    <div className="sidebar-section-label" style={{ marginTop: 16 }}>Friends</div>
+                    <div className="sidebar-section-label" style={{ marginTop: 16 }}>FRIENDS</div>
                     {friendsData.friends.map(f => (
                         <div
                             key={f.id}
@@ -116,7 +158,6 @@ export default function MainLayout() {
                     ))}
                 </div>
 
-                {/* User panel at bottom */}
                 <div className="user-panel">
                     <Avatar name={user!.username} color={user!.avatarColor} size="sm" />
                     <div className="user-info">
@@ -147,7 +188,70 @@ export default function MainLayout() {
                         <ChatPanel key={currentFriend.id} friend={currentFriend} />
                     </>
                 )}
+                {view.type === 'group' && currentGroup && (
+                    <>
+                        <div className="content-header">
+                            <div className="group-icon-sm">#</div>
+                            <span>{currentGroup.name}</span>
+                            <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+                                ({currentGroup.memberCount} members)
+                            </span>
+                        </div>
+                        <GroupChatPanel key={currentGroup.id} group={currentGroup} />
+                    </>
+                )}
             </main>
+
+            {showCreateGroup && (
+                <CreateGroupModal
+                    friends={friendsData.friends}
+                    onClose={() => setShowCreateGroup(false)}
+                    onCreated={(_id) => {
+                        load();
+                        // Optional: automatically open the newly created group
+                    }}
+                />
+            )}
+
+            <style>{`
+                .sidebar-section-header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    padding-right: 8px;
+                }
+                .add-section-btn {
+                    background: none;
+                    border: none;
+                    color: var(--text-muted);
+                    font-size: 18px;
+                    cursor: pointer;
+                    line-height: 1;
+                }
+                .add-section-btn:hover {
+                    color: var(--text-primary);
+                }
+                .group-icon-sm {
+                    width: 24px;
+                    height: 24px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: var(--text-muted);
+                    font-size: 20px;
+                    font-weight: 400;
+                }
+                .nav-icon-btn.add-btn {
+                    color: var(--green);
+                    background: var(--bg-accent);
+                    font-size: 24px;
+                }
+                .nav-icon-btn.add-btn:hover {
+                    background: var(--green);
+                    color: white;
+                    border-radius: 35%;
+                }
+            `}</style>
         </div>
     );
 }

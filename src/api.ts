@@ -41,6 +41,17 @@ export const api = {
 
     sendMessage: (userId: number, content: string) =>
         request<Message>('POST', `/api/messages/${userId}`, { content }),
+
+    getGroupMessages: (groupId: number, since?: number) =>
+        request<Message[]>('GET', `/api/groups/${groupId}/messages${since ? `?since=${since}` : ''}`),
+
+    sendGroupMessage: (groupId: number, content: string) =>
+        request<Message>('POST', `/api/groups/${groupId}/messages`, { content }),
+
+    getGroups: () => request<Group[]>('GET', '/api/groups'),
+
+    createGroup: (name: string, members: number[]) =>
+        request<Group>('POST', '/api/groups', { name, members }),
 };
 
 export interface User {
@@ -67,4 +78,12 @@ export interface Message {
     content: string;
     createdAt: number;
     sender: User;
+}
+
+export interface Group {
+    id: number;
+    name: string;
+    ownerId: number;
+    createdAt: number;
+    memberCount?: number;
 }

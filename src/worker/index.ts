@@ -289,6 +289,104 @@ async function handleSendMessage(request: Request, env: Env, otherUserId: number
   return json({ id: result.id, content: content.trim(), createdAt: result.created_at, senderId: auth.userId }, 201);
 }
 
+async function handleCreateGroup(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const { name, members } = await request.json() as { name: string; members: number[] };
+  if (!name?.trim()) return err('Group name is required');
+  if (!members || !Array.isArray(members) || members.length === 0) return err('Select at least one friend');
+
+  // Verify all members are friends of the creator
+  for (const memberId of members) {
+    const friendship = await env.DB.prepare(
+      "SELECT id FROM friendships WHERE status = 'accepted' AND ((requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?))"
+    ).bind(auth.userId, memberId, memberId, auth.userId).first();
+    if (!friendship) return err(`User ${memberId} is not your friend`);
+  }
+
+  const res = await env.DB.prepare(
+    'INSERT INTO groups (name, owner_id) VALUES (?, ?) RETURNING id'
+  ).bind(name.trim(), auth.userId).first() as { id: number };
+
+  // Add owner and members to group_members
+  const allMembers = [auth.userId, ...members];
+  const stmt = env.DB.prepare('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)');
+  await env.DB.batch(allMembers.map(id => stmt.bind(res.id, id)));
+
+  return json({ id: res.id, name: name.trim(), ownerId: auth.userId }, 201);
+}
+
+async function handleGetGroups(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+
+  const groups = await env.DB.prepare(`
+    SELECT g.*, (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) as memberCount
+    FROM groups g
+    JOIN group_members gm ON g.id = gm.group_id
+    WHERE gm.user_id = ?
+    ORDER BY g.created_at DESC
+  `).bind(auth.userId).all();
+
+  return json(groups.results.map((g: any) => ({
+    id: g.id,
+    name: g.name,
+    ownerId: g.owner_id,
+    createdAt: g.created_at,
+    memberCount: g.memberCount
+  })));
+}
+
+async function handleGetGroupMessages(request: Request, env: Env, groupId: number): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+
+  // Verify user is a member
+  const isMember = await env.DB.prepare(
+    'SELECT id FROM group_members WHERE group_id = ? AND user_id = ?'
+  ).bind(groupId, auth.userId).first();
+  if (!isMember) return err('Not a member of this group', 403);
+
+  const url = new URL(request.url);
+  const since = url.searchParams.get('since') || '0';
+
+  const messages = await env.DB.prepare(`
+    SELECT gm.id, gm.content, gm.created_at,
+           u.id as sender_id, u.username as sender_username, u.avatar_color as sender_avatar_color
+    FROM group_messages gm
+    JOIN users u ON u.id = gm.sender_id
+    WHERE gm.group_id = ? AND gm.created_at > ?
+    ORDER BY gm.created_at ASC, gm.id ASC
+    LIMIT 100
+  `).bind(groupId, since).all();
+
+  return json(messages.results.map((m: any) => ({
+    id: m.id,
+    content: m.content,
+    createdAt: m.created_at,
+    sender: { id: m.sender_id, username: m.sender_username, avatarColor: m.sender_avatar_color }
+  })));
+}
+
+async function handleSendGroupMessage(request: Request, env: Env, groupId: number): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const { content } = await request.json() as { content: string };
+  if (!content?.trim()) return err('Message cannot be empty');
+
+  // Verify membership
+  const isMember = await env.DB.prepare(
+    'SELECT id FROM group_members WHERE group_id = ? AND user_id = ?'
+  ).bind(groupId, auth.userId).first();
+  if (!isMember) return err('Not a member of this group', 403);
+
+  const result = await env.DB.prepare(
+    'INSERT INTO group_messages (group_id, sender_id, content) VALUES (?, ?, ?) RETURNING id, created_at'
+  ).bind(groupId, auth.userId, content.trim()).first() as { id: number; created_at: number };
+
+  return json({ id: result.id, content: content.trim(), createdAt: result.created_at, senderId: auth.userId }, 201);
+}
+
 // --- Main fetch handler ---
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -315,6 +413,17 @@ export default {
       if (path === '/api/friends/add' && request.method === 'POST') return handleAddFriend(request, env);
       if (path === '/api/friends/accept' && request.method === 'POST') return handleAcceptFriend(request, env);
       if (path === '/api/friends/reject' && request.method === 'POST') return handleRejectFriend(request, env);
+
+      // Group routes
+      if (path === '/api/groups' && request.method === 'POST') return handleCreateGroup(request, env);
+      if (path === '/api/groups' && request.method === 'GET') return handleGetGroups(request, env);
+
+      const groupMatch = path.match(/^\/api\/groups\/(\d+)\/messages$/);
+      if (groupMatch) {
+        const groupId = parseInt(groupMatch[1]);
+        if (request.method === 'GET') return handleGetGroupMessages(request, env, groupId);
+        if (request.method === 'POST') return handleSendGroupMessage(request, env, groupId);
+      }
 
       // Message routes
       const msgMatch = path.match(/^\/api\/messages\/(\d+)$/);
