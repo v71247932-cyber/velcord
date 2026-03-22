@@ -5,6 +5,7 @@
 export interface Env {
   DB: D1Database;
   JWT_SECRET: string;
+  ASSETS: Fetcher;
 }
 
 // --- Simple JWT implementation using Web Crypto ---
@@ -299,6 +300,11 @@ export default {
     const path = url.pathname;
 
     try {
+      // Fallback for non-API routes: serve static assets from Cloudflare Pages
+      if (!path.startsWith('/api/')) {
+        return env.ASSETS.fetch(request);
+      }
+
       // Auth routes
       if (path === '/api/auth/register' && request.method === 'POST') return handleRegister(request, env);
       if (path === '/api/auth/login' && request.method === 'POST') return handleLogin(request, env);
