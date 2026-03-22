@@ -241,11 +241,11 @@ async function handleGetMessages(request: Request, env: Env, otherUserId: number
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
 
-  // Verify they are friends
+  // Verify they have any friendship record (pending or accepted)
   const friendship = await env.DB.prepare(
-    "SELECT id FROM friendships WHERE ((requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)) AND status = 'accepted'"
+    "SELECT id FROM friendships WHERE (requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)"
   ).bind(auth.userId, otherUserId, otherUserId, auth.userId).first();
-  if (!friendship) return err('Not friends with this user', 403);
+  if (!friendship) return err('No connection with this user', 403);
 
   const url = new URL(request.url);
   const since = url.searchParams.get('since') || '0';
@@ -276,11 +276,11 @@ async function handleSendMessage(request: Request, env: Env, otherUserId: number
   if (!content?.trim()) return err('Message cannot be empty');
   if (content.length > 2000) return err('Message too long (max 2000 chars)');
 
-  // Verify they are friends
+  // Verify they have any friendship record
   const friendship = await env.DB.prepare(
-    "SELECT id FROM friendships WHERE ((requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)) AND status = 'accepted'"
+    "SELECT id FROM friendships WHERE (requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)"
   ).bind(auth.userId, otherUserId, otherUserId, auth.userId).first();
-  if (!friendship) return err('Not friends with this user', 403);
+  if (!friendship) return err('No connection with this user', 403);
 
   const result = await env.DB.prepare(
     'INSERT INTO direct_messages (sender_id, receiver_id, content) VALUES (?, ?, ?) RETURNING id, created_at'
