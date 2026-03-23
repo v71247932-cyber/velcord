@@ -127,8 +127,8 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
   if (!username || !password) return err('Username and password are required');
 
   const user = await env.DB.prepare(
-    'SELECT id, username, password_hash, avatar_color FROM users WHERE username = ?'
-  ).bind(username).first() as { id: number; username: string; password_hash: string; avatar_color: string } | null;
+    'SELECT id, username, password_hash, avatar_color, avatar_url FROM users WHERE username = ?'
+  ).bind(username).first() as { id: number; username: string; password_hash: string; avatar_color: string; avatar_url: string | null } | null;
 
   if (!user) return err('Invalid username or password', 401);
   const ok = await verifyPassword(password, user.password_hash);
