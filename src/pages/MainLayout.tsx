@@ -110,6 +110,19 @@ export default function MainLayout() {
         };
         reader.readAsDataURL(file);
     }
+ 
+    async function handleRemoveAvatar() {
+        if (!confirm('Are you sure you want to remove your profile picture?')) return;
+        setUpdatingProfile(true);
+        try {
+            const updated = await api.updateProfile(undefined, null);
+            useAuth().updateUser(updated);
+        } catch (err: any) {
+            alert(err.message);
+        } finally {
+            setUpdatingProfile(false);
+        }
+    }
 
     const pendingCount = friendsData.pendingReceived.length;
     const currentFriend = view.type === 'dm' ? view.friend : null;
@@ -305,7 +318,19 @@ export default function MainLayout() {
                                         <input type="file" accept="image/*" onChange={handleAvatarUpload} hidden />
                                     </label>
                                 </div>
-                                <p className="avatar-hint">Click avatar to upload</p>
+                                <div className="avatar-actions">
+                                    <p className="avatar-hint">Click avatar to upload</p>
+                                    {user?.avatarUrl && (
+                                        <button 
+                                            type="button" 
+                                            className="btn-link btn-danger-link" 
+                                            onClick={handleRemoveAvatar}
+                                            style={{ fontSize: 12, marginTop: 4 }}
+                                        >
+                                            Remove Avatar
+                                        </button>
+                                    )}
+                                </div>
                             </div>
 
                             <form onSubmit={handleUpdateProfile} className="profile-form">
@@ -433,6 +458,17 @@ export default function MainLayout() {
                     font-size: 12px;
                     color: var(--text-muted);
                     margin-top: 8px;
+                }
+                .avatar-actions {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                }
+                .btn-danger-link {
+                    color: var(--status-danger) !important;
+                }
+                .btn-danger-link:hover {
+                    text-decoration: underline;
                 }
                 .profile-form .form-group {
                     margin-bottom: 16px;

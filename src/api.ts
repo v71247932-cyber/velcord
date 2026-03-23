@@ -62,7 +62,7 @@ export const api = {
     deleteGroup: (groupId: number) =>
         request<{ success: boolean }>('DELETE', `/api/groups/${groupId}`),
 
-    updateProfile: (username?: string, avatarUrl?: string) =>
+    updateProfile: (username?: string, avatarUrl?: string | null) =>
         request<User>('PATCH', '/api/me', { username, avatarUrl }),
 };
 
