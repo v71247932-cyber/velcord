@@ -165,9 +165,10 @@ async function handleUpdateProfile(request: Request, env: Env): Promise<Response
   }
 
   const user = await env.DB.prepare('SELECT id, username, avatar_color, avatar_url FROM users WHERE id = ?')
-    .bind(auth.userId).first() as { id: number; username: string; avatar_color: string; avatar_url: string } | null;
+    .bind(auth.userId).first() as { id: number; username: string; avatar_color: string; avatar_url: string | null } | null;
 
-  return json(user);
+  if (!user) return err('User not found', 404);
+  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: user.avatar_url });
 }
 
 async function handleGetFriends(request: Request, env: Env): Promise<Response> {
