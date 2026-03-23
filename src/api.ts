@@ -52,18 +52,32 @@ export const api = {
 
     createGroup: (name: string, members: number[]) =>
         request<Group>('POST', '/api/groups', { name, members }),
+
+    deleteMessage: (messageId: number) =>
+        request<{ success: boolean }>('DELETE', `/api/messages/${messageId}`),
+
+    deleteGroupMessage: (messageId: number) =>
+        request<{ success: boolean }>('DELETE', `/api/group-messages/${messageId}`),
+
+    deleteGroup: (groupId: number) =>
+        request<{ success: boolean }>('DELETE', `/api/groups/${groupId}`),
+
+    updateProfile: (username?: string, avatarUrl?: string) =>
+        request<User>('PATCH', '/api/me', { username, avatarUrl }),
 };
 
 export interface User {
     id: number;
     username: string;
     avatarColor: string;
+    avatarUrl?: string;
 }
 
 export interface FriendUser {
     id: number;
     username: string;
     avatarColor: string;
+    avatarUrl?: string;
     friendshipId: number;
 }
 

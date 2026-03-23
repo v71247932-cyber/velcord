@@ -84,7 +84,7 @@ export default function FriendsPanel({ onOpenDM }: FriendsPanelProps) {
                         )}
                         {!loading && data.friends.length === 0 && (
                             <div className="empty-state">
-                                <div className="empty-icon">👥</div>
+                                <div className="empty-icon">⚡</div>
                                 <p>No friends yet. Add someone using the <strong>Add Friend</strong> tab!</p>
                             </div>
                         )}
@@ -93,7 +93,7 @@ export default function FriendsPanel({ onOpenDM }: FriendsPanelProps) {
                                 <div className="section-header">Friends — {data.friends.length}</div>
                                 {data.friends.map(f => (
                                     <div key={f.id} className="friend-item">
-                                        <Avatar name={f.username} color={f.avatarColor} size="md" />
+                                        <Avatar name={f.username} color={f.avatarColor} src={f.avatarUrl} size="md" />
                                         <div className="friend-info">
                                             <div className="friend-name">{f.username}</div>
                                             <div className="friend-status">Online</div>
@@ -127,7 +127,7 @@ export default function FriendsPanel({ onOpenDM }: FriendsPanelProps) {
                                 <div className="section-header">Incoming — {data.pendingReceived.length}</div>
                                 {data.pendingReceived.map(f => (
                                     <div key={f.id} className="friend-item">
-                                        <Avatar name={f.username} color={f.avatarColor} size="md" />
+                                        <Avatar name={f.username} color={f.avatarColor} src={f.avatarUrl} size="md" />
                                         <div className="friend-info">
                                             <div className="friend-name">{f.username}</div>
                                             <div className="friend-status">Incoming Friend Request</div>
@@ -148,7 +148,7 @@ export default function FriendsPanel({ onOpenDM }: FriendsPanelProps) {
                                 <div className="section-header" style={{ marginTop: '16px' }}>Outgoing — {data.pendingSent.length}</div>
                                 {data.pendingSent.map(f => (
                                     <div key={f.id} className="friend-item">
-                                        <Avatar name={f.username} color={f.avatarColor} size="md" />
+                                        <Avatar name={f.username} color={f.avatarColor} src={f.avatarUrl} size="md" />
                                         <div className="friend-info">
                                             <div className="friend-name">{f.username}</div>
                                             <div className="friend-status">Outgoing Friend Request</div>

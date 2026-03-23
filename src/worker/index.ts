@@ -135,16 +135,39 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
   if (!ok) return err('Invalid username or password', 401);
 
   const token = await signJWT({ userId: user.id, username: user.username }, env.JWT_SECRET);
-  return json({ token, user: { id: user.id, username: user.username, avatarColor: user.avatar_color } });
+  return json({ token, user: { id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: user.avatar_url } });
 }
 
 async function handleMe(request: Request, env: Env): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
-  const user = await env.DB.prepare('SELECT id, username, avatar_color FROM users WHERE id = ?')
-    .bind(auth.userId).first() as { id: number; username: string; avatar_color: string } | null;
+  const user = await env.DB.prepare('SELECT id, username, avatar_color, avatar_url FROM users WHERE id = ?')
+    .bind(auth.userId).first() as { id: number; username: string; avatar_color: string; avatar_url: string } | null;
   if (!user) return err('User not found', 404);
-  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color });
+  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: user.avatar_url });
+}
+
+async function handleUpdateProfile(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const { username, avatarUrl } = await request.json() as { username?: string; avatarUrl?: string };
+
+  if (username) {
+    if (username.length < 2 || username.length > 32) return err('Username must be 2-32 characters');
+    if (!/^[a-zA-Z0-9._-]+$/.test(username)) return err('Username can only contain letters, numbers, dots, underscores, hyphens');
+    const existing = await env.DB.prepare('SELECT id FROM users WHERE username = ? AND id != ?').bind(username, auth.userId).first();
+    if (existing) return err('Username already taken');
+    await env.DB.prepare('UPDATE users SET username = ? WHERE id = ?').bind(username, auth.userId).run();
+  }
+
+  if (avatarUrl !== undefined) {
+    await env.DB.prepare('UPDATE users SET avatar_url = ? WHERE id = ?').bind(avatarUrl, auth.userId).run();
+  }
+
+  const user = await env.DB.prepare('SELECT id, username, avatar_color, avatar_url FROM users WHERE id = ?')
+    .bind(auth.userId).first() as { id: number; username: string; avatar_color: string; avatar_url: string } | null;
+
+  return json(user);
 }
 
 async function handleGetFriends(request: Request, env: Env): Promise<Response> {
@@ -153,7 +176,7 @@ async function handleGetFriends(request: Request, env: Env): Promise<Response> {
 
   // Accepted friends
   const friends = await env.DB.prepare(`
-    SELECT u.id, u.username, u.avatar_color, f.id as friendship_id,
+    SELECT u.id, u.username, u.avatar_color, u.avatar_url, f.id as friendship_id,
            CASE WHEN f.requester_id = ? THEN 'sent' ELSE 'received' END as direction
     FROM friendships f
     JOIN users u ON u.id = CASE WHEN f.requester_id = ? THEN f.addressee_id ELSE f.requester_id END
@@ -162,7 +185,7 @@ async function handleGetFriends(request: Request, env: Env): Promise<Response> {
 
   // Pending sent
   const sent = await env.DB.prepare(`
-    SELECT u.id, u.username, u.avatar_color, f.id as friendship_id
+    SELECT u.id, u.username, u.avatar_color, u.avatar_url, f.id as friendship_id
     FROM friendships f
     JOIN users u ON u.id = f.addressee_id
     WHERE f.requester_id = ? AND f.status = 'pending'
@@ -170,16 +193,16 @@ async function handleGetFriends(request: Request, env: Env): Promise<Response> {
 
   // Pending received
   const received = await env.DB.prepare(`
-    SELECT u.id, u.username, u.avatar_color, f.id as friendship_id
+    SELECT u.id, u.username, u.avatar_color, u.avatar_url, f.id as friendship_id
     FROM friendships f
     JOIN users u ON u.id = f.requester_id
     WHERE f.addressee_id = ? AND f.status = 'pending'
   `).bind(auth.userId).all();
 
   return json({
-    friends: friends.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, friendshipId: r.friendship_id })),
-    pendingSent: sent.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, friendshipId: r.friendship_id })),
-    pendingReceived: received.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, friendshipId: r.friendship_id })),
+    friends: friends.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: r.avatar_url, friendshipId: r.friendship_id })),
+    pendingSent: sent.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: r.avatar_url, friendshipId: r.friendship_id })),
+    pendingReceived: received.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: r.avatar_url, friendshipId: r.friendship_id })),
   });
 }
 
@@ -252,7 +275,7 @@ async function handleGetMessages(request: Request, env: Env, otherUserId: number
 
   const messages = await env.DB.prepare(`
     SELECT dm.id, dm.content, dm.created_at,
-           u.id as sender_id, u.username as sender_username, u.avatar_color as sender_avatar_color
+           u.id as sender_id, u.username as sender_username, u.avatar_color as sender_avatar_color, u.avatar_url as sender_avatar_url
     FROM direct_messages dm
     JOIN users u ON u.id = dm.sender_id
     WHERE ((dm.sender_id = ? AND dm.receiver_id = ?) OR (dm.sender_id = ? AND dm.receiver_id = ?))
@@ -265,8 +288,22 @@ async function handleGetMessages(request: Request, env: Env, otherUserId: number
     id: m.id,
     content: m.content,
     createdAt: m.created_at,
-    sender: { id: m.sender_id, username: m.sender_username, avatarColor: m.sender_avatar_color }
+    sender: { id: m.sender_id, username: m.sender_username, avatarColor: m.sender_avatar_color, avatarUrl: m.sender_avatar_url }
   })));
+}
+
+async function handleDeleteMessage(request: Request, env: Env, messageId: number): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+
+  const msg = await env.DB.prepare('SELECT id, sender_id FROM direct_messages WHERE id = ?')
+    .bind(messageId).first() as { id: number; sender_id: number } | null;
+
+  if (!msg) return err('Message not found', 404);
+  if (msg.sender_id !== auth.userId) return err('Cannot delete someone else\'s message', 403);
+
+  await env.DB.prepare('DELETE FROM direct_messages WHERE id = ?').bind(messageId).run();
+  return json({ success: true });
 }
 
 async function handleSendMessage(request: Request, env: Env, otherUserId: number): Promise<Response> {
@@ -337,6 +374,20 @@ async function handleGetGroups(request: Request, env: Env): Promise<Response> {
   })));
 }
 
+async function handleDeleteGroup(request: Request, env: Env, groupId: number): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+
+  const group = await env.DB.prepare('SELECT id, owner_id FROM groups WHERE id = ?')
+    .bind(groupId).first() as { id: number; owner_id: number } | null;
+
+  if (!group) return err('Group not found', 404);
+  if (group.owner_id !== auth.userId) return err('Only the owner can delete the group', 403);
+
+  await env.DB.prepare('DELETE FROM groups WHERE id = ?').bind(groupId).run();
+  return json({ success: true });
+}
+
 async function handleGetGroupMessages(request: Request, env: Env, groupId: number): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
@@ -352,7 +403,7 @@ async function handleGetGroupMessages(request: Request, env: Env, groupId: numbe
 
   const messages = await env.DB.prepare(`
     SELECT gm.id, gm.content, gm.created_at,
-           u.id as sender_id, u.username as sender_username, u.avatar_color as sender_avatar_color
+           u.id as sender_id, u.username as sender_username, u.avatar_color as sender_avatar_color, u.avatar_url as sender_avatar_url
     FROM group_messages gm
     JOIN users u ON u.id = gm.sender_id
     WHERE gm.group_id = ? AND gm.created_at > ?
@@ -364,8 +415,22 @@ async function handleGetGroupMessages(request: Request, env: Env, groupId: numbe
     id: m.id,
     content: m.content,
     createdAt: m.created_at,
-    sender: { id: m.sender_id, username: m.sender_username, avatarColor: m.sender_avatar_color }
+    sender: { id: m.sender_id, username: m.sender_username, avatarColor: m.sender_avatar_color, avatarUrl: m.sender_avatar_url }
   })));
+}
+
+async function handleDeleteGroupMessage(request: Request, env: Env, messageId: number): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+
+  const msg = await env.DB.prepare('SELECT id, sender_id FROM group_messages WHERE id = ?')
+    .bind(messageId).first() as { id: number; sender_id: number } | null;
+
+  if (!msg) return err('Message not found', 404);
+  if (msg.sender_id !== auth.userId) return err('Cannot delete someone else\'s message', 403);
+
+  await env.DB.prepare('DELETE FROM group_messages WHERE id = ?').bind(messageId).run();
+  return json({ success: true });
 }
 
 async function handleSendGroupMessage(request: Request, env: Env, groupId: number): Promise<Response> {
@@ -406,7 +471,9 @@ export default {
       // Auth routes
       if (path === '/api/auth/register' && request.method === 'POST') return handleRegister(request, env);
       if (path === '/api/auth/login' && request.method === 'POST') return handleLogin(request, env);
+      // Profile/User routes
       if (path === '/api/me' && request.method === 'GET') return handleMe(request, env);
+      if (path === '/api/me' && request.method === 'PATCH') return handleUpdateProfile(request, env);
 
       // Friend routes
       if (path === '/api/friends' && request.method === 'GET') return handleGetFriends(request, env);
@@ -418,6 +485,11 @@ export default {
       if (path === '/api/groups' && request.method === 'POST') return handleCreateGroup(request, env);
       if (path === '/api/groups' && request.method === 'GET') return handleGetGroups(request, env);
 
+      const groupDeleteMatch = path.match(/^\/api\/groups\/(\d+)$/);
+      if (groupDeleteMatch && request.method === 'DELETE') {
+        return handleDeleteGroup(request, env, parseInt(groupDeleteMatch[1]));
+      }
+
       const groupMatch = path.match(/^\/api\/groups\/(\d+)\/messages$/);
       if (groupMatch) {
         const groupId = parseInt(groupMatch[1]);
@@ -425,7 +497,15 @@ export default {
         if (request.method === 'POST') return handleSendGroupMessage(request, env, groupId);
       }
 
+      const groupMsgDeleteMatch = path.match(/^\/api\/group-messages\/(\d+)$/);
+      if (groupMsgDeleteMatch && request.method === 'DELETE') {
+        return handleDeleteGroupMessage(request, env, parseInt(groupMsgDeleteMatch[1]));
+      }
+
       // Message routes
+      const msgIdMatch = path.match(/^\/api\/messages\/(\d+)$/);
+      if (msgIdMatch && request.method === 'DELETE') return handleDeleteMessage(request, env, parseInt(msgIdMatch[1]));
+
       const msgMatch = path.match(/^\/api\/messages\/(\d+)$/);
       if (msgMatch) {
         const otherUserId = parseInt(msgMatch[1]);

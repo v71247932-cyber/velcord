@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
   username TEXT UNIQUE NOT NULL COLLATE NOCASE,
   password_hash TEXT NOT NULL,
   avatar_color TEXT NOT NULL DEFAULT '#5865f2',
+  avatar_url TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 

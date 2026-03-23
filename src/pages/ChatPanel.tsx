@@ -87,16 +87,39 @@ export default function ChatPanel({ friend }: ChatPanelProps) {
         e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
     }
 
+    async function handleDeleteMessage(e: React.MouseEvent, msg: Message) {
+        if (e.shiftKey) {
+            e.stopPropagation();
+            if (msg.sender.id !== user?.id) return; // Only delete own messages
+
+            if (confirm('Delete this message?')) {
+                try {
+                    await api.deleteMessage(msg.id);
+                    setMessages(prev => prev.filter(m => m.id !== msg.id));
+                } catch (err: any) {
+                    alert(err.message);
+                }
+            }
+        }
+    }
+
     const rendered = messages.map((msg) => {
         const isMe = user && msg.sender.id === user.id;
 
         return (
-            <div key={msg.id} className="msg-wrapper">
+            <div
+                key={msg.id}
+                className="msg-wrapper"
+                onClick={(e) => handleDeleteMessage(e, msg)}
+                style={{ cursor: isMe ? 'pointer' : 'default' }}
+                title={isMe ? 'Shift+Click to delete' : ''}
+            >
                 <div className={`msg-group ${isMe ? 'msg-group-sent' : 'msg-group-received'}`}>
                     <div className="msg-avatar-col">
                         <Avatar
                             name={msg.sender.username}
                             color={msg.sender.avatarColor}
+                            src={msg.sender.avatarUrl}
                             size={isMe ? 'sm' : 'md'}
                         />
                     </div>
