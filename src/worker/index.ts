@@ -157,6 +157,15 @@ async function handleSystemStatus(request: Request, env: Env): Promise<Response>
   });
 }
 
+// Recent video clips (to diagnose playback problems); needs the secret key
+async function handleSystemVideos(request: Request, env: Env): Promise<Response> {
+  const key = request.headers.get('X-System-Key');
+  if (!env.SYSTEM_KEY || !key || key !== env.SYSTEM_KEY) return err('Not found', 404);
+  const rows = await env.DB.prepare(`SELECT v.id, u.username, v.mime, v.size, v.chunks, v.ready, v.created_at, v.expires_at
+    FROM videos v JOIN users u ON u.id = v.owner_id ORDER BY v.created_at DESC LIMIT 15`).all();
+  return json(rows.results);
+}
+
 // --- Avatars ---
 // Pictures are stored as data URLs. API responses never carry them: queries return a short
 // version token and the client loads /api/avatars/<id>?v=<token>, which the browser caches.
@@ -1135,6 +1144,7 @@ export default {
       // Official notifications (needs the secret key)
       if (path === '/api/system/notify' && request.method === 'POST') return handleSystemNotify(request, env);
       if (path === '/api/system/status' && request.method === 'POST') return handleSystemStatus(request, env);
+      if (path === '/api/system/videos' && request.method === 'POST') return handleSystemVideos(request, env);
 
       // Video clips
       if (path === '/api/videos' && request.method === 'POST') return handleVideoInit(request, env);
