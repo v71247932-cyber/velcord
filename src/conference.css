@@ -1,0 +1,58 @@
+/* ---- Conference (group) call ---- */
+.conf-window {
+  position: fixed; right: 16px; bottom: 16px; z-index: 1600;
+  width: min(780px, calc(100vw - 32px)); max-height: calc(100vh - 32px);
+  display: flex; flex-direction: column; gap: 10px; padding: 12px;
+  background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 16px;
+  box-shadow: 0 16px 50px rgba(0,0,0,0.55);
+}
+.conf-head { display: flex; align-items: baseline; gap: 10px; padding: 0 4px; }
+.conf-title { font-weight: 700; font-size: 15px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conf-meta { margin-left: auto; font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+.conf-stage { display: flex; flex-direction: column; gap: 8px; min-height: 0; position: relative; }
+.conf-share { position: relative; width: 100%; aspect-ratio: 16 / 9; max-height: 46vh; border-radius: 12px; overflow: hidden; background: #000; }
+.conf-share .conf-video { object-fit: contain; }
+.conf-grid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.conf-grid.n1 { grid-template-columns: 1fr; }
+.conf-grid.n2 { grid-template-columns: repeat(2, 1fr); }
+.conf-grid.n3, .conf-grid.n4 { grid-template-columns: repeat(2, 1fr); }
+.conf-grid.n5, .conf-grid.n6 { grid-template-columns: repeat(3, 1fr); }
+.has-share .conf-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+.conf-tile { position: relative; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; background: #14151a; box-shadow: 0 0 0 2px transparent; transition: box-shadow 0.12s ease; }
+.conf-tile.speaking { box-shadow: 0 0 0 3px #23a55a; }
+.conf-video { width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
+.conf-video.mirrored { transform: scaleX(-1); }
+.conf-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; background: radial-gradient(circle at 50% 40%, #2b2d31, #14151a); }
+.conf-placeholder .avatar-xl { width: 64px; height: 64px; font-size: 26px; }
+.conf-note { font-size: 11px; color: var(--text-muted); }
+.conf-label { position: absolute; left: 8px; bottom: 6px; display: inline-flex; align-items: center; gap: 5px; max-width: calc(100% - 16px); padding: 3px 8px; border-radius: 6px; background: rgba(0,0,0,0.6); color: #fff; font-size: 12px; font-weight: 600; }
+.conf-label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conf-label svg { color: #f4595d; flex-shrink: 0; }
+.conf-connecting { font-weight: 400; color: #f0b232; }
+.conf-alone { text-align: center; font-size: 13px; color: var(--text-muted); padding: 2px 0 4px; }
+.conf-controls { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
+.conf-controls .call-btn { flex: 0 0 auto; min-width: 120px; }
+.conf-leave { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.conf-leave svg { transform: rotate(135deg); }
+.conf-ring { z-index: 1700; }
+
+/* Group header and banner */
+.conf-banner {
+  display: flex; align-items: center; gap: 10px; margin: 8px 12px 0; padding: 8px 12px;
+  border-radius: 10px; background: rgba(35,165,90,0.14); border: 1px solid rgba(35,165,90,0.35);
+  color: var(--text-primary); font-size: 13px;
+}
+.conf-banner-dot { width: 9px; height: 9px; border-radius: 50%; background: #23a55a; box-shadow: 0 0 0 0 rgba(35,165,90,0.6); animation: conf-pulse 1.6s infinite; flex-shrink: 0; }
+@keyframes conf-pulse { 70% { box-shadow: 0 0 0 8px rgba(35,165,90,0); } 100% { box-shadow: 0 0 0 0 rgba(35,165,90,0); } }
+.conf-banner-text { flex: 1; min-width: 0; }
+.conf-banner button { height: 30px; padding: 0 14px; border: none; border-radius: 8px; background: #23a55a; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }
+.conf-banner button:hover { background: #1e8f4e; }
+.nav-group-btn.in-call { box-shadow: 0 0 0 2px #23a55a; }
+
+@media (max-width: 768px) {
+  .conf-window { inset: 0; width: auto; max-height: none; border-radius: 0; padding: calc(10px + env(safe-area-inset-top, 0px)) 10px calc(10px + env(safe-area-inset-bottom, 0px)); }
+  .conf-stage { flex: 1; overflow-y: auto; }
+  .conf-grid.n3, .conf-grid.n4, .conf-grid.n5, .conf-grid.n6 { grid-template-columns: repeat(2, 1fr); }
+  .conf-controls .call-btn { flex: 1 1 calc(50% - 8px); }
+}
+.header-in-call { margin-left: auto; font-size: 13px; font-weight: 600; color: #23a55a; }

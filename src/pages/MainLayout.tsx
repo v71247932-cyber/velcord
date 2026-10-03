@@ -17,6 +17,7 @@ import BannerCropModal from '../components/BannerCropModal';
 import { askNotificationPermissionOnFirstClick, notify, setBadge, isDesktopApp, isOldDesktopShell, isMobileDevice, isInstalledPwa, isIOS, INSTALL_COMMAND } from '../notify';
 import { PhoneIcon, VideoIcon, UsersIcon, PlusIcon } from '../components/Icons';
 import ProfileCard from '../components/ProfileCard';
+import { useConference } from '../ConferenceContext';
 import GroupMembersPanel from '../components/GroupMembersPanel';
 import CreateGroupModal from '../components/CreateGroupModal';
 
@@ -27,6 +28,7 @@ type View =
 
 export default function MainLayout() {
     const { user, logout, updateUser } = useAuth();
+    const conference = useConference();
     const { phase: callPhase, startCall, muted, deafened, toggleMute, toggleDeafen } = useCall();
     const [view, setView] = useState<View>({ type: 'friends' });
     const [groups, setGroups] = useState<Group[]>([]);
@@ -276,6 +278,12 @@ export default function MainLayout() {
                         <button onClick={() => startCall(currentFriend, { video: true })} disabled={callPhase !== 'idle'} aria-label="Video call"><VideoIcon size={20} /></button>
                     </div>
                 )}
+                {view.type === 'group' && currentGroup && conference.activeGroupId !== currentGroup.id && (
+                    <div className="mobile-actions">
+                        <button onClick={() => conference.join(currentGroup.id, currentGroup.name)} disabled={callPhase !== 'idle' || conference.activeGroupId !== null} aria-label="Group call"><PhoneIcon size={20} /></button>
+                        <button onClick={() => conference.join(currentGroup.id, currentGroup.name, { video: true })} disabled={callPhase !== 'idle' || conference.activeGroupId !== null} aria-label="Group video call"><VideoIcon size={20} /></button>
+                    </div>
+                )}
                 {(view.type === 'dm' || view.type === 'group') && (
                     <button className={`mobile-info-btn ${showInfo ? 'on' : ''}`} onClick={() => setShowInfo(v => !v)} aria-label="Info">
                         <UsersIcon size={20} />
@@ -303,7 +311,7 @@ export default function MainLayout() {
                 {groups.map(g => (
                     <button
                         key={g.id}
-                        className={`nav-icon-btn nav-group-btn ${currentGroup?.id === g.id ? 'active' : ''}`}
+                        className={`nav-icon-btn nav-group-btn ${currentGroup?.id === g.id ? 'active' : ''} ${(g.callCount || 0) > 0 ? 'in-call' : ''}`}
                         onClick={(e) => {
                             if (e.shiftKey) handleDeleteGroup(e, g);
                             else if (currentGroup?.id === g.id) setShowGroupSettings(true); // click the selected group again
@@ -467,7 +475,26 @@ export default function MainLayout() {
                                     <span>{currentGroup.name}</span>
                                     <span className="header-chevron">▾</span>
                                 </div>
+                                {conference.activeGroupId === currentGroup.id ? (
+                                    <span className="header-in-call">● You are in the call</span>
+                                ) : (
+                                    <>
+                                        <button className="header-call-btn" onClick={() => conference.join(currentGroup.id, currentGroup.name)} disabled={callPhase !== 'idle' || conference.activeGroupId !== null} title="Start a group call">
+                                            <PhoneIcon size={15} /> {(currentGroup.callCount || 0) > 0 ? 'Join call' : 'Call'}
+                                        </button>
+                                        <button className="header-call-btn header-video-btn" onClick={() => conference.join(currentGroup.id, currentGroup.name, { video: true })} disabled={callPhase !== 'idle' || conference.activeGroupId !== null} title="Start a group video call">
+                                            <VideoIcon size={15} /> Video
+                                        </button>
+                                    </>
+                                )}
                             </div>
+                            {(currentGroup.callCount || 0) > 0 && conference.activeGroupId !== currentGroup.id && (
+                                <div className="conf-banner">
+                                    <span className="conf-banner-dot" />
+                                    <span className="conf-banner-text">A call is going on · {currentGroup.callCount} in the call</span>
+                                    <button onClick={() => conference.join(currentGroup.id, currentGroup.name)} disabled={callPhase !== 'idle' || conference.activeGroupId !== null}>Join</button>
+                                </div>
+                            )}
                             <GroupChatPanel key={currentGroup.id} group={currentGroup} />
                         </div>
                         <GroupMembersPanel group={currentGroup} friends={friendsData.friends} onGroupChanged={load} />

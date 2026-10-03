@@ -4,6 +4,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import MainLayout from './pages/MainLayout';
 import { CallProvider } from './CallContext';
+import { ConferenceProvider } from './ConferenceContext';
 
 function RequireAuth({ children }: { children: React.ReactElement }) {
   const { user, loading } = useAuth();
@@ -29,7 +30,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={<RequireGuest><Login /></RequireGuest>} />
       <Route path="/register" element={<RequireGuest><Register /></RequireGuest>} />
-      <Route path="/app" element={<RequireAuth><CallProvider><MainLayout /></CallProvider></RequireAuth>} />
+      <Route path="/app" element={<RequireAuth><CallProvider><ConferenceProvider><MainLayout /></ConferenceProvider></CallProvider></RequireAuth>} />
       <Route path="*" element={<Navigate to="/app" replace />} />
     </Routes>
   );

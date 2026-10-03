@@ -6,6 +6,7 @@ import { useAuth } from './AuthContext';
 import Avatar from './components/Avatar';
 import { MicIcon, MicOffIcon, VideoIcon, VideoOffIcon } from './components/Icons';
 import { notify } from './notify';
+import { callBusy } from './callBusy';
 import { startRinging } from './ringtones';
 import { onLive } from './live';
 
@@ -299,7 +300,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
         if (sig.type === 'invite') {
             if (serverNow - sig.createdAt > INVITE_MAX_AGE_S) return; // stale ring
-            if (phaseRef.current !== 'idle') {
+            if (phaseRef.current !== 'idle' || callBusy.conference) {
                 // busy: tell the caller (peerRef is another user, so call the API directly)
                 api.callSignal(fromId, 'reject', 'busy').catch(() => {});
                 return;
@@ -399,6 +400,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
         return () => { stopped = true; clearTimeout(timer); off(); };
     }, [user, handleSignal]);
 
+    // Tells the conference side that a one-to-one call is going on
+    useEffect(() => { callBusy.oneToOne = phase !== 'idle'; }, [phase]);
+
     // Call timer
     useEffect(() => {
         if (phase !== 'active') return;
@@ -453,6 +457,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
     const startCall = useCallback(async (friend: User, opts?: { video?: boolean }) => {
         if (phaseRef.current !== 'idle') return;
+        if (callBusy.conference) { setNotice('Leave the group call first.'); return; }
         await getMic();
         if (opts?.video) { setStartedVideo(true); await getCamera(); }
         if (phaseRef.current !== 'idle') { camRef.current?.getTracks().forEach(t => t.stop()); camRef.current = null; return; }

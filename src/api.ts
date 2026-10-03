@@ -122,11 +122,16 @@ export const api = {
 
     removeGif: (id: string) => request<{ success: boolean }>('DELETE', `/api/gifs/${id}`),
 
-    callSignal: (to: number, type: string, payload?: unknown) =>
-        request<{ success: boolean }>('POST', '/api/calls/signal', { to, type, payload: payload === undefined ? undefined : JSON.stringify(payload) }),
+    callSignal: (to: number, type: string, payload?: unknown, conf?: number) =>
+        request<{ success: boolean }>('POST', '/api/calls/signal', { to, type, conf, payload: payload === undefined ? undefined : JSON.stringify(payload) }),
 
-    callPoll: (after: number) =>
-        request<{ now: number; lastId?: number; signals: CallSignal[] }>('GET', after < 0 ? '/api/calls/poll?init=1' : `/api/calls/poll?after=${after}`),
+    confJoin: (groupId: number, video: boolean) =>
+        request<{ started: boolean; max: number; roster: ConfPerson[] }>('POST', `/api/conferences/${groupId}/join`, { video }),
+
+    confLeave: (groupId: number) => request<{ success: boolean }>('POST', `/api/conferences/${groupId}/leave`, {}),
+
+    callPoll: (after: number, conf?: number) =>
+        request<{ now: number; lastId?: number; roster?: ConfPerson[]; signals: CallSignal[] }>('GET', after < 0 ? '/api/calls/poll?init=1' : `/api/calls/poll?after=${after}${conf ? `&conf=${conf}` : ''}`),
 
     updateBanner: (patch: { bannerUrl?: string | null; bannerColors?: [string, string] | null }) =>
         request<User>('PATCH', '/api/me', patch),
@@ -208,10 +213,19 @@ export interface Message {
     sender: User;
 }
 
+export interface ConfPerson {
+    id: number;
+    username: string;
+    avatarColor: string;
+    avatarUrl?: string | null;
+    verified?: boolean;
+}
+
 export interface CallSignal {
     id: number;
+    conf?: number | null;
     from: User;
-    type: 'invite' | 'accept' | 'reject' | 'hangup' | 'desc' | 'ice' | 'share' | 'cam';
+    type: 'invite' | 'accept' | 'reject' | 'hangup' | 'desc' | 'ice' | 'share' | 'cam' | 'conf-invite' | 'conf-desc' | 'conf-ice' | 'conf-cam' | 'conf-share' | 'conf-mute';
     payload: string | null;
     createdAt: number;
 }
@@ -226,4 +240,6 @@ export interface Group {
     bannerColor1?: string | null;
     bannerColor2?: string | null;
     memberCount?: number;
+    /** how many people are in a conference call of this group right now */
+    callCount?: number;
 }
