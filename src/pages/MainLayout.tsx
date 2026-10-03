@@ -7,6 +7,8 @@ import FriendsPanel from './FriendsPanel';
 import ChatPanel from './ChatPanel';
 import GroupChatPanel from './GroupChatPanel';
 import { useCall } from '../CallContext';
+import ProfileCard from '../components/ProfileCard';
+import GroupMembersPanel from '../components/GroupMembersPanel';
 import CreateGroupModal from '../components/CreateGroupModal';
 
 type View =
@@ -16,7 +18,7 @@ type View =
 
 export default function MainLayout() {
     const { user, logout, updateUser } = useAuth();
-    const { phase: callPhase, startCall } = useCall();
+    const { phase: callPhase, startCall, muted, deafened, toggleMute, toggleDeafen } = useCall();
     const [view, setView] = useState<View>({ type: 'friends' });
     const [groups, setGroups] = useState<Group[]>([]);
     const [friendsData, setFriendsData] = useState<FriendsData>({ friends: [], pendingSent: [], pendingReceived: [] });
@@ -196,37 +198,6 @@ export default function MainLayout() {
                         <span className="badge badge-dot" />
                     )}
                 </button>
-
-                <div className="nav-separator" />
-
-                {/* Groups in the icon sidebar circle icons */}
-                {groups.map(g => (
-                    <button
-                        key={g.id}
-                        className={`nav-icon-btn ${currentGroup?.id === g.id ? 'active' : ''}`}
-                        onClick={(e) => {
-                            if (e.shiftKey) handleDeleteGroup(e, g);
-                            else openGroup(g);
-                        }}
-                        title={`${g.name} (Shift+Click to delete)`}
-                        style={{ background: 'var(--bg-accent)', borderRadius: currentGroup?.id === g.id ? '35%' : '50%', padding: 0, overflow: 'hidden' }}
-                    >
-                        <span style={{ color: 'white', fontWeight: 700, fontSize: 13 }}>
-                            {g.name.substring(0, 2).toUpperCase()}
-                        </span>
-                    </button>
-                ))}
-
-                <button
-                    className="nav-icon-btn add-btn"
-                    onClick={() => {
-                        setShowCreateGroup(true);
-                        setSidebarOpen(false);
-                    }}
-                    title="Create Group"
-                >
-                    +
-                </button>
             </nav>
 
             {/* Channel/DM sidebar */}
@@ -254,37 +225,56 @@ export default function MainLayout() {
 
                     <div className="sidebar-section-label" style={{ marginTop: 24 }}>DIRECT MESSAGES</div>
 
-                    {/* List ALL friends here as requested, regardless of online/recent status */}
-                    {[...friendsData.friends, ...friendsData.pendingReceived, ...friendsData.pendingSent].length === 0 && (
+                    {friendsData.friends.length === 0 && (
                         <p style={{ padding: '0 16px', fontSize: 13, color: 'var(--text-muted)' }}>
                             No friends yet
                         </p>
                     )}
 
-                    {/* Combine friends and pending lists for the sidebar as requested previously for DMs */}
-                    {[...friendsData.friends, ...friendsData.pendingReceived, ...friendsData.pendingSent].map(f => (
+                    {/* Only accepted friends: a pending request shows up here after the other person accepts */}
+                    {friendsData.friends.map(f => (
                         <div
                             key={f.id}
                             className={`dm-item ${currentFriend?.id === f.id ? 'active' : ''}`}
                             onClick={() => openDM(f)}
                             id={`dm-${f.id}`}
                         >
-                            <Avatar name={f.username} color={f.avatarColor} src={f.avatarUrl} size="sm" />
+                            <Avatar name={f.username} color={f.avatarColor} src={f.avatarUrl} size="sm" status={f.online ? 'online' : 'offline'} />
                             <div className="sidebar-user-details">
                                 <span className="dm-name">{f.username}</span>
-                                <span className="user-status-dot" style={{ background: friendsData.friends.find(af => af.id === f.id) ? 'var(--green)' : 'var(--text-muted)' }} />
                             </div>
                         </div>
                     ))}
                 </div>
 
-                <div className="user-panel" onClick={() => setShowProfileMenu(true)} style={{ cursor: 'pointer' }}>
-                    <Avatar name={user!.username} color={user!.avatarColor} src={user!.avatarUrl} size="sm" />
-                    <div className="user-info">
-                        <div className="user-name">{user!.username}</div>
-                        <div className="user-tag" style={{ color: 'var(--green)' }}>● Online</div>
+                <div className="user-bar">
+                    <div className="user-bar-main" onClick={() => setShowProfileMenu(true)} title="Profile settings">
+                        <Avatar name={user!.username} color={user!.avatarColor} src={user!.avatarUrl} size="md" status="online" />
+                        <div className="user-info">
+                            <div className="user-name">{user!.username}</div>
+                            <div className="user-tag">{deafened ? 'Deafened' : muted ? 'Muted' : 'Online'}</div>
+                        </div>
                     </div>
-                    <button className="leave-btn" onClick={(e) => { e.stopPropagation(); logout(); }}>Leave</button>
+                    <button className={`user-bar-btn ${muted || deafened ? 'is-off' : ''}`} onClick={toggleMute} title={muted || deafened ? 'Unmute' : 'Mute'}>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="9" y="3" width="6" height="11" rx="3" />
+                            <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+                            {(muted || deafened) && <path d="M3 3l18 18" />}
+                        </svg>
+                    </button>
+                    <button className={`user-bar-btn ${deafened ? 'is-off' : ''}`} onClick={toggleDeafen} title={deafened ? 'Undeafen' : 'Deafen'}>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M4 15v-3a8 8 0 0 1 16 0v3" />
+                            <rect x="3" y="14" width="4" height="6" rx="1.5" />
+                            <rect x="17" y="14" width="4" height="6" rx="1.5" />
+                            {deafened && <path d="M3 3l18 18" />}
+                        </svg>
+                    </button>
+                    <button className="user-bar-btn user-bar-leave" onClick={logout} title="Leave">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+                        </svg>
+                    </button>
                 </div>
             </aside>
 
@@ -299,36 +289,43 @@ export default function MainLayout() {
                         <FriendsPanel onOpenDM={openDM} />
                     </>
                 )}
-                {view.type === 'dm' && currentFriend && (
-                    <>
-                        <div className="content-header">
-                            <Avatar name={currentFriend.username} color={currentFriend.avatarColor} src={currentFriend.avatarUrl} size="sm" />
-                            <span>{currentFriend.username}</span>
-                            {friendsData.friends.some(f => f.id === currentFriend.id) && (
-                                <button
-                                    className="header-call-btn"
-                                    onClick={() => startCall(currentFriend)}
-                                    disabled={callPhase !== 'idle'}
-                                    title="Start a voice call"
-                                >
-                                    📞 Call
-                                </button>
-                            )}
+                {view.type === 'dm' && currentFriend && (() => {
+                    const live = friendsData.friends.find(f => f.id === currentFriend.id) ?? currentFriend;
+                    const isFriend = friendsData.friends.some(f => f.id === currentFriend.id);
+                    return (
+                        <div className="chat-split">
+                            <div className="chat-main">
+                                <div className="content-header">
+                                    <Avatar name={live.username} color={live.avatarColor} src={live.avatarUrl} size="sm" zoomable status={live.online ? 'online' : 'offline'} />
+                                    <span>{live.username}</span>
+                                    {isFriend && (
+                                        <button
+                                            className="header-call-btn"
+                                            onClick={() => startCall(live)}
+                                            disabled={callPhase !== 'idle'}
+                                            title="Start a voice call"
+                                        >
+                                            📞 Call
+                                        </button>
+                                    )}
+                                </div>
+                                <ChatPanel key={currentFriend.id} friend={live} />
+                            </div>
+                            <ProfileCard friend={live} onCall={isFriend ? () => startCall(live) : undefined} callDisabled={callPhase !== 'idle'} />
                         </div>
-                        <ChatPanel key={currentFriend.id} friend={currentFriend} />
-                    </>
-                )}
+                    );
+                })()}
                 {view.type === 'group' && currentGroup && (
-                    <>
-                        <div className="content-header">
-                            <div className="group-icon-sm">#</div>
-                            <span>{currentGroup.name}</span>
-                            <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-                                ({currentGroup.memberCount} members)
-                            </span>
+                    <div className="chat-split">
+                        <div className="chat-main">
+                            <div className="content-header">
+                                <div className="group-icon-sm">#</div>
+                                <span>{currentGroup.name}</span>
+                            </div>
+                            <GroupChatPanel key={currentGroup.id} group={currentGroup} />
                         </div>
-                        <GroupChatPanel key={currentGroup.id} group={currentGroup} />
-                    </>
+                        <GroupMembersPanel groupId={currentGroup.id} />
+                    </div>
                 )}
             </main>
 

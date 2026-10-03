@@ -48,6 +48,8 @@ export const api = {
     sendGroupMessage: (groupId: number, content: string) =>
         request<Message>('POST', `/api/groups/${groupId}/messages`, { content }),
 
+    getGroupMembers: (groupId: number) => request<GroupMember[]>('GET', `/api/groups/${groupId}/members`),
+
     getGroups: () => request<Group[]>('GET', '/api/groups'),
 
     createGroup: (name: string, members: number[]) =>
@@ -99,6 +101,7 @@ export interface FriendUser {
     username: string;
     avatarColor: string;
     avatarUrl?: string;
+    online?: boolean;
     friendshipId: number;
 }
 
@@ -106,6 +109,15 @@ export interface FriendsData {
     friends: FriendUser[];
     pendingSent: FriendUser[];
     pendingReceived: FriendUser[];
+}
+
+export interface GroupMember {
+    id: number;
+    username: string;
+    avatarColor: string;
+    avatarUrl?: string;
+    online: boolean;
+    isOwner: boolean;
 }
 
 export interface Message {
@@ -120,7 +132,7 @@ export interface Message {
 export interface CallSignal {
     id: number;
     from: User;
-    type: 'invite' | 'accept' | 'reject' | 'hangup' | 'desc' | 'ice';
+    type: 'invite' | 'accept' | 'reject' | 'hangup' | 'desc' | 'ice' | 'share';
     payload: string | null;
     createdAt: number;
 }

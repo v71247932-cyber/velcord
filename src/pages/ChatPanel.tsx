@@ -163,6 +163,7 @@ export default function ChatPanel({ friend }: ChatPanelProps) {
                 <div className={`msg-group ${isMe ? 'msg-group-sent' : 'msg-group-received'}`}>
                     <div className="msg-avatar-col">
                         <Avatar
+                            zoomable
                             name={msg.sender.username}
                             color={msg.sender.avatarColor}
                             src={msg.sender.avatarUrl}

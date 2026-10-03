@@ -10,9 +10,16 @@ type Phase = 'idle' | 'calling' | 'ringing' | 'connecting' | 'active';
 interface CallContextValue {
     phase: Phase;
     startCall: (friend: User) => void;
+    /** Mic and headphones state, usable inside and outside a call */
+    muted: boolean;
+    deafened: boolean;
+    toggleMute: () => void;
+    toggleDeafen: () => void;
 }
 
-const CallContext = createContext<CallContextValue>({ phase: 'idle', startCall: () => {} });
+const CallContext = createContext<CallContextValue>({
+    phase: 'idle', startCall: () => {}, muted: false, deafened: false, toggleMute: () => {}, toggleDeafen: () => {},
+});
 export const useCall = () => useContext(CallContext);
 
 const RTC_CONFIG: RTCConfiguration = {
@@ -60,6 +67,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const [peer, setPeer] = useState<User | null>(null);
     const [muted, setMuted] = useState(false);
     const [hasMic, setHasMic] = useState(true);
+    const [deafened, setDeafened] = useState(false);
+    const mutedRef = useRef(false);
+    const deafenedRef = useRef(false);
     const [sharing, setSharing] = useState(false);
     const [remoteSharing, setRemoteSharing] = useState(false);
     const [notice, setNotice] = useState<string | null>(null);
@@ -113,7 +123,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
         ignoreOfferRef.current = false;
         peerRef.current = null;
         setPeer(null);
-        setMuted(false);
         setHasMic(true);
         setSharing(false);
         setRemoteSharing(false);
@@ -132,10 +141,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
         if (message) setNotice(message);
     }, [cleanup]);
 
-    const updateRemoteSharing = useCallback(() => {
-        const live = remoteStreamRef.current.getVideoTracks().some(t => t.readyState === 'live' && !t.muted);
-        setRemoteSharing(live);
-    }, []);
+    // Whether the other side is sharing comes from an explicit 'share' signal.
+    // Relying on track mute events showed a black frame when sharing a second time.
+    const updateRemoteSharing = useCallback(() => {}, []);
 
     const createPeerConnection = useCallback((polite: boolean) => {
         politeRef.current = polite;
@@ -199,6 +207,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
             });
             micRef.current = stream;
+            stream.getAudioTracks().forEach(t => { t.enabled = !(mutedRef.current || deafenedRef.current); });
             setHasMic(true);
             stopLocalMeterRef.current?.();
             stopLocalMeterRef.current = watchSpeaking(stream, setLocalSpeaking);
@@ -244,6 +253,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
             case 'hangup':
                 endCall(phaseRef.current === 'ringing' ? 'Missed call' : 'Call ended', false);
                 break;
+            case 'share': {
+                const on = !!(sig.payload && JSON.parse(sig.payload));
+                setRemoteSharing(on);
+                if (on && videoRef.current) {
+                    videoRef.current.srcObject = remoteStreamRef.current;
+                    videoRef.current.play().catch(() => {});
+                }
+                break;
+            }
             case 'desc': {
                 const pc = pcRef.current;
                 if (!pc || !sig.payload) return;
@@ -393,10 +411,21 @@ export function CallProvider({ children }: { children: ReactNode }) {
         cleanup();
     }
 
+    // Mic follows muted/deafened; headphones follow deafened (like Discord)
+    useEffect(() => {
+        mutedRef.current = muted;
+        deafenedRef.current = deafened;
+        micRef.current?.getAudioTracks().forEach(t => { t.enabled = !(muted || deafened); });
+        if (videoRef.current) videoRef.current.muted = deafened;
+    }, [muted, deafened, phase]);
+
     function toggleMute() {
-        const next = !muted;
-        micRef.current?.getAudioTracks().forEach(t => { t.enabled = !next; });
-        setMuted(next);
+        if (deafened) { setDeafened(false); setMuted(false); return; } // unmuting while deafened undeafens
+        setMuted(m => !m);
+    }
+
+    function toggleDeafen() {
+        setDeafened(d => !d);
     }
 
     async function startScreenShare() {
@@ -405,19 +434,31 @@ export function CallProvider({ children }: { children: ReactNode }) {
         if (!pc) return;
         try {
             // The browser shows its own picker (screen / window / tab) and asks for permission here
-            // Cap capture at 1080p30: a bigger capture overloads the encoder and causes lag
             const stream = await navigator.mediaDevices.getDisplayMedia({
-                video: { width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 }, frameRate: { ideal: 30, max: 30 } },
+                video: { width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 }, frameRate: { ideal: 60, max: 60 } },
                 audio: false,
             });
             const track = stream.getVideoTracks()[0];
             // 'motion' keeps the frame rate high instead of dropping to a slideshow to keep text sharp
             try { track.contentHint = 'motion'; } catch { /* unsupported */ }
             screenRef.current = stream;
-            const sender = pc.addTrack(track, stream);
-            screenSenderRef.current = sender;
-            tuneScreenSender(pc, sender);
             track.onended = () => stopScreenShare();
+
+            if (screenSenderRef.current) {
+                // Sharing again: reuse the same video sender. Adding a new track made the viewer see black.
+                await screenSenderRef.current.replaceTrack(track);
+                await send('share', true);
+            } else {
+                const tr = pc.addTransceiver(track, {
+                    direction: 'sendonly',
+                    streams: [stream],
+                    sendEncodings: [{ maxBitrate: 8_000_000, maxFramerate: 60, scaleResolutionDownBy: 1 }],
+                });
+                screenSenderRef.current = tr.sender;
+                tuneScreenSender(pc, tr.sender);
+                // Give the first negotiation a moment so the viewer is ready for frames
+                setTimeout(() => { if (screenRef.current === stream) send('share', true); }, 700);
+            }
             setSharing(true);
         } catch (e: any) {
             if (e?.name === 'NotAllowedError') setNotice('Screen sharing was cancelled or not allowed.');
@@ -434,8 +475,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
             try {
                 const params = sender.getParameters();
                 if (params.encodings && params.encodings.length > 0) {
-                    params.encodings[0].maxBitrate = 5_000_000;
-                    params.encodings[0].maxFramerate = 30;
+                    params.encodings[0].maxBitrate = 8_000_000;
+                    params.encodings[0].maxFramerate = 60;
                     params.encodings[0].scaleResolutionDownBy = 1;
                     (params as any).degradationPreference = 'maintain-framerate';
                     await sender.setParameters(params);
@@ -448,14 +489,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
 
     function stopScreenShare() {
-        const pc = pcRef.current;
-        if (pc && screenSenderRef.current) {
-            try { pc.removeTrack(screenSenderRef.current); } catch { /* noop */ }
-        }
+        screenSenderRef.current?.replaceTrack(null).catch(() => {}); // keep the sender for the next share
         screenRef.current?.getTracks().forEach(t => t.stop());
         screenRef.current = null;
-        screenSenderRef.current = null;
         setSharing(false);
+        send('share', false);
     }
 
     const mm = String(Math.floor(seconds / 60)).padStart(2, '0');
@@ -463,7 +501,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const inCall = phase === 'connecting' || phase === 'active';
 
     return (
-        <CallContext.Provider value={{ phase, startCall }}>
+        <CallContext.Provider value={{ phase, startCall, muted, deafened, toggleMute, toggleDeafen }}>
             {children}
 
             {notice && <div className="call-toast" onClick={() => setNotice(null)}>{notice}</div>}
@@ -508,11 +546,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
                             </div>
                             <span>{peer.username}</span>
                         </div>
-                        <div className={`call-person ${localSpeaking && !muted ? 'speaking' : ''}`}>
+                        <div className={`call-person ${localSpeaking && !muted && !deafened ? 'speaking' : ''}`}>
                             <div className="call-avatar-ring">
                                 <Avatar name={user!.username} color={user!.avatarColor} src={user!.avatarUrl} size="md" />
                             </div>
-                            <span>You{muted ? ' (muted)' : ''}</span>
+                            <span>You{muted || deafened ? ' (muted)' : ''}</span>
                         </div>
                     </div>
                     <div className="call-buttons">

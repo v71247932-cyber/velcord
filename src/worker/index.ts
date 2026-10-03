@@ -174,6 +174,11 @@ async function handleUpdateProfile(request: Request, env: Env): Promise<Response
   return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: user.avatar_url });
 }
 
+const ONLINE_WINDOW = 20; // seconds since the last heartbeat
+function isOnline(lastSeen: number | null): boolean {
+  return !!lastSeen && Math.floor(Date.now() / 1000) - lastSeen < ONLINE_WINDOW;
+}
+
 async function handleGetFriends(request: Request, env: Env): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
@@ -181,10 +186,12 @@ async function handleGetFriends(request: Request, env: Env): Promise<Response> {
   // The app polls this endpoint while open, so anything addressed to this user counts as delivered
   await env.DB.prepare('UPDATE direct_messages SET delivered_at = unixepoch() WHERE receiver_id = ? AND delivered_at IS NULL')
     .bind(auth.userId).run();
+  // Presence: the app polls this endpoint while open, so it doubles as a heartbeat
+  await env.DB.prepare('UPDATE users SET last_seen = unixepoch() WHERE id = ?').bind(auth.userId).run();
 
   // Accepted friends
   const friends = await env.DB.prepare(`
-    SELECT u.id, u.username, u.avatar_color, u.avatar_url, f.id as friendship_id,
+    SELECT u.id, u.username, u.avatar_color, u.avatar_url, u.last_seen, f.id as friendship_id,
            CASE WHEN f.requester_id = ? THEN 'sent' ELSE 'received' END as direction
     FROM friendships f
     JOIN users u ON u.id = CASE WHEN f.requester_id = ? THEN f.addressee_id ELSE f.requester_id END
@@ -193,7 +200,7 @@ async function handleGetFriends(request: Request, env: Env): Promise<Response> {
 
   // Pending sent
   const sent = await env.DB.prepare(`
-    SELECT u.id, u.username, u.avatar_color, u.avatar_url, f.id as friendship_id
+    SELECT u.id, u.username, u.avatar_color, u.avatar_url, u.last_seen, f.id as friendship_id
     FROM friendships f
     JOIN users u ON u.id = f.addressee_id
     WHERE f.requester_id = ? AND f.status = 'pending'
@@ -201,16 +208,16 @@ async function handleGetFriends(request: Request, env: Env): Promise<Response> {
 
   // Pending received
   const received = await env.DB.prepare(`
-    SELECT u.id, u.username, u.avatar_color, u.avatar_url, f.id as friendship_id
+    SELECT u.id, u.username, u.avatar_color, u.avatar_url, u.last_seen, f.id as friendship_id
     FROM friendships f
     JOIN users u ON u.id = f.requester_id
     WHERE f.addressee_id = ? AND f.status = 'pending'
   `).bind(auth.userId).all();
 
   return json({
-    friends: friends.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: r.avatar_url, friendshipId: r.friendship_id })),
-    pendingSent: sent.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: r.avatar_url, friendshipId: r.friendship_id })),
-    pendingReceived: received.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: r.avatar_url, friendshipId: r.friendship_id })),
+    friends: friends.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: r.avatar_url, online: isOnline(r.last_seen), friendshipId: r.friendship_id })),
+    pendingSent: sent.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: r.avatar_url, online: isOnline(r.last_seen), friendshipId: r.friendship_id })),
+    pendingReceived: received.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: r.avatar_url, online: isOnline(r.last_seen), friendshipId: r.friendship_id })),
   });
 }
 
@@ -274,9 +281,9 @@ async function handleGetMessages(request: Request, env: Env, otherUserId: number
 
   // Verify they have any friendship record (pending or accepted)
   const friendship = await env.DB.prepare(
-    "SELECT id FROM friendships WHERE (requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)"
+    "SELECT id FROM friendships WHERE status = 'accepted' AND ((requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?))"
   ).bind(auth.userId, otherUserId, otherUserId, auth.userId).first();
-  if (!friendship) return err('No connection with this user', 403);
+  if (!friendship) return err('You are not friends with this user yet', 403);
 
   const url = new URL(request.url);
   const since = url.searchParams.get('since') || '0';
@@ -336,9 +343,9 @@ async function handleSendMessage(request: Request, env: Env, otherUserId: number
 
   // Verify they have any friendship record
   const friendship = await env.DB.prepare(
-    "SELECT id FROM friendships WHERE (requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)"
+    "SELECT id FROM friendships WHERE status = 'accepted' AND ((requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?))"
   ).bind(auth.userId, otherUserId, otherUserId, auth.userId).first();
-  if (!friendship) return err('No connection with this user', 403);
+  if (!friendship) return err('You are not friends with this user yet', 403);
 
   const result = await env.DB.prepare(
     'INSERT INTO direct_messages (sender_id, receiver_id, content) VALUES (?, ?, ?) RETURNING id, created_at'
@@ -392,6 +399,30 @@ async function handleGetGroups(request: Request, env: Env): Promise<Response> {
     ownerId: g.owner_id,
     createdAt: g.created_at,
     memberCount: g.memberCount
+  })));
+}
+
+async function handleGroupMembers(request: Request, env: Env, groupId: number): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const isMember = await env.DB.prepare('SELECT id FROM group_members WHERE group_id = ? AND user_id = ?')
+    .bind(groupId, auth.userId).first();
+  if (!isMember) return err('Not a member of this group', 403);
+  const rows = await env.DB.prepare(`
+    SELECT u.id, u.username, u.avatar_color, u.avatar_url, u.last_seen, g.owner_id
+    FROM group_members gm
+    JOIN users u ON u.id = gm.user_id
+    JOIN groups g ON g.id = gm.group_id
+    WHERE gm.group_id = ?
+    ORDER BY u.username COLLATE NOCASE
+  `).bind(groupId).all();
+  return json(rows.results.map((r: any) => ({
+    id: r.id,
+    username: r.username,
+    avatarColor: r.avatar_color,
+    avatarUrl: r.avatar_url,
+    online: r.id === auth.userId || isOnline(r.last_seen),
+    isOwner: r.id === r.owner_id,
   })));
 }
 
@@ -481,6 +512,7 @@ function ensureSchema(env: Env): Promise<void> {
       for (const col of ['delivered_at', 'read_at']) {
         try { await env.DB.prepare(`ALTER TABLE direct_messages ADD COLUMN ${col} INTEGER`).run(); } catch { /* already exists */ }
       }
+      try { await env.DB.prepare('ALTER TABLE users ADD COLUMN last_seen INTEGER').run(); } catch { /* already exists */ }
       await env.DB.batch([
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS uploads (
           id TEXT PRIMARY KEY,
@@ -571,7 +603,7 @@ async function handleMessageStatus(request: Request, env: Env, otherUserId: numb
 }
 
 // --- Call signaling (WebRTC offers/answers/ICE relayed through D1) ---
-const SIGNAL_TYPES = ['invite', 'accept', 'reject', 'hangup', 'desc', 'ice'];
+const SIGNAL_TYPES = ['invite', 'accept', 'reject', 'hangup', 'desc', 'ice', 'share'];
 
 async function handleCallSignal(request: Request, env: Env): Promise<Response> {
   const auth = await getAuth(request, env);
@@ -667,6 +699,9 @@ export default {
       // Group routes
       if (path === '/api/groups' && request.method === 'POST') return handleCreateGroup(request, env);
       if (path === '/api/groups' && request.method === 'GET') return handleGetGroups(request, env);
+
+      const groupMembersMatch = path.match(/^\/api\/groups\/(\d+)\/members$/);
+      if (groupMembersMatch && request.method === 'GET') return handleGroupMembers(request, env, parseInt(groupMembersMatch[1]));
 
       const groupDeleteMatch = path.match(/^\/api\/groups\/(\d+)$/);
       if (groupDeleteMatch && request.method === 'DELETE') {

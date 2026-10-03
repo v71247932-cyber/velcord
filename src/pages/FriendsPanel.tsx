@@ -95,10 +95,10 @@ export default function FriendsPanel({ onOpenDM }: FriendsPanelProps) {
                                 <div className="section-header">Friends — {data.friends.length}</div>
                                 {data.friends.map(f => (
                                     <div key={f.id} className="friend-item">
-                                        <Avatar name={f.username} color={f.avatarColor} src={f.avatarUrl} size="md" />
+                                        <Avatar name={f.username} color={f.avatarColor} src={f.avatarUrl} size="md" zoomable status={f.online ? 'online' : 'offline'} />
                                         <div className="friend-info">
                                             <div className="friend-name">{f.username}</div>
-                                            <div className="friend-status">Online</div>
+                                            <div className="friend-status">{f.online ? 'Online' : 'Offline'}</div>
                                         </div>
                                         <div className="friend-actions">
                                             <button className="btn btn-secondary btn-sm" onClick={() => onOpenDM(f)}>
@@ -139,9 +139,6 @@ export default function FriendsPanel({ onOpenDM }: FriendsPanelProps) {
                                             <div className="friend-status">Incoming Friend Request</div>
                                         </div>
                                         <div className="friend-actions">
-                                            <button className="btn btn-secondary btn-sm" onClick={() => onOpenDM(f)}>
-                                                💬 Message
-                                            </button>
                                             <button className="btn btn-success" onClick={() => handleAccept(f.friendshipId)}>✓ Accept</button>
                                             <button className="btn btn-danger" onClick={() => handleReject(f.friendshipId)}>✕ Decline</button>
                                         </div>
@@ -160,9 +157,6 @@ export default function FriendsPanel({ onOpenDM }: FriendsPanelProps) {
                                             <div className="friend-status">Outgoing Friend Request</div>
                                         </div>
                                         <div className="friend-actions">
-                                            <button className="btn btn-secondary btn-sm" onClick={() => onOpenDM(f)}>
-                                                💬 Message
-                                            </button>
                                             <button className="btn btn-danger btn-sm" onClick={() => handleReject(f.friendshipId)}>
                                                 Cancel
                                             </button>
