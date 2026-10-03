@@ -10,6 +10,7 @@ import { useCall } from '../CallContext';
 import { bannerStyle } from '../banner';
 import { playMessageSound } from '../ringtones';
 import VerifiedBadge from '../components/VerifiedBadge';
+import GroupSettingsModal from '../components/GroupSettingsModal';
 import { coverImageDataUrl } from '../uploads';
 import { askNotificationPermissionOnFirstClick, notify, setBadge, isDesktopApp, INSTALL_COMMAND } from '../notify';
 import { PhoneIcon, UsersIcon, PlusIcon } from '../components/Icons';
@@ -39,6 +40,7 @@ export default function MainLayout() {
     const lastUnreadRef = useRef<Map<number, number> | null>(null);
     const openDMRef = useRef<(f: FriendUser) => void>(() => {});
     const [copied, setCopied] = useState(false);
+    const [showGroupSettings, setShowGroupSettings] = useState(false);
     const [bannerC1, setBannerC1] = useState(user?.bannerColor1 || '#5865f2');
     const [bannerC2, setBannerC2] = useState(user?.bannerColor2 || '#eb459e');
     const [previewColors, setPreviewColors] = useState(false);
@@ -88,6 +90,7 @@ export default function MainLayout() {
     }
 
     function openGroup(group: Group) {
+        setShowGroupSettings(false);
         setView({ type: 'group', group });
         setSidebarOpen(false); // Close on mobile
     }
@@ -281,6 +284,7 @@ export default function MainLayout() {
                         className={`nav-icon-btn nav-group-btn ${currentGroup?.id === g.id ? 'active' : ''}`}
                         onClick={(e) => {
                             if (e.shiftKey) handleDeleteGroup(e, g);
+                            else if (currentGroup?.id === g.id) setShowGroupSettings(true); // click the selected group again
                             else openGroup(g);
                         }}
                         title={`${g.name} (Shift+Click to delete)`}
@@ -405,8 +409,11 @@ export default function MainLayout() {
                     <div className="chat-split">
                         <div className="chat-main">
                             <div className="content-header">
-                                <Avatar name={currentGroup.name} color="#5865f2" src={currentGroup.avatarUrl ?? undefined} size="sm" />
-                                <span>{currentGroup.name}</span>
+                                <div className="header-clickable" onClick={() => setShowGroupSettings(true)} title="Group settings">
+                                    <Avatar name={currentGroup.name} color="#5865f2" src={currentGroup.avatarUrl ?? undefined} size="sm" />
+                                    <span>{currentGroup.name}</span>
+                                    <span className="header-chevron">▾</span>
+                                </div>
                             </div>
                             <GroupChatPanel key={currentGroup.id} group={currentGroup} />
                         </div>
@@ -414,6 +421,15 @@ export default function MainLayout() {
                     </div>
                 )}
             </main>
+
+            {showGroupSettings && currentGroup && (
+                <GroupSettingsModal
+                    group={currentGroup}
+                    isOwner={currentGroup.ownerId === user?.id}
+                    onClose={() => setShowGroupSettings(false)}
+                    onChanged={load}
+                />
+            )}
 
             {showCreateGroup && (
                 <CreateGroupModal
