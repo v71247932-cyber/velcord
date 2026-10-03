@@ -3,6 +3,7 @@ import { IMAGE_TOKEN, VIDEO_TOKEN } from '../uploads';
 import type { Message, User } from '../api';
 import { CloseIcon, ImageIcon } from './Icons';
 import Avatar from './Avatar';
+import RichText from './RichText';
 
 const BASE = import.meta.env.VITE_API_URL || '';
 
@@ -132,7 +133,7 @@ export function MessageContent({ content, sender, createdAt }: { content: string
         );
     }
     const m = IMAGE_TOKEN.exec(content);
-    if (!m) return <div className="msg-text">{content}</div>;
+    if (!m) return <RichText content={content} />;
     const src = `${BASE}/api/uploads/${m[1]}`;
     if (failed) return <div className="msg-expired"><ImageIcon size={15} /> Image expired (deleted after 2 days)</div>;
     return (
