@@ -12,11 +12,12 @@
 .header-clickable .header-chevron { color: var(--text-muted); font-size: 12px; }
 
 .gset { max-width: 460px; width: 92%; padding: 0 !important; overflow: hidden; border-radius: 12px; }
-.gset-banner { height: 110px; position: relative; }
+.gset-banner { height: 72px; position: relative; }
 .gset-body { padding: 0 24px 20px; }
-.gset-top { display: flex; align-items: flex-end; gap: 14px; margin-top: -40px; margin-bottom: 14px; }
-.gset-pic { border: 6px solid var(--bg-secondary); border-radius: 50%; background: var(--bg-secondary); flex-shrink: 0; }
-.gset-title { padding-bottom: 6px; min-width: 0; }
+.gset-top { display: flex; align-items: center; gap: 14px; margin-top: 16px; margin-bottom: 8px; position: relative; z-index: 1; }
+.gset-pic { flex-shrink: 0; line-height: 0; }
+.gset-pic .avatar { width: 64px; height: 64px; font-size: 26px; }
+.gset-title { min-width: 0; }
 .gset-name { font-size: 20px; font-weight: 800; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gset-sub { font-size: 12px; color: var(--text-muted); }
 .gset-section { margin: 10px 0; padding: 12px 14px; border-radius: 10px; background: var(--bg-modifier); }
