@@ -150,7 +150,7 @@ async function handleMe(request: Request, env: Env): Promise<Response> {
 async function handleUpdateProfile(request: Request, env: Env): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
-  const { username, avatarUrl } = await request.json() as { username?: string; avatarUrl?: string };
+  const { username, avatarUrl } = await request.json() as { username?: string; avatarUrl?: string | null };
 
   if (username) {
     if (username.length < 2 || username.length > 32) return err('Username must be 2-32 characters');
@@ -161,6 +161,9 @@ async function handleUpdateProfile(request: Request, env: Env): Promise<Response
   }
 
   if (avatarUrl !== undefined) {
+    if (avatarUrl !== null && (typeof avatarUrl !== 'string' || !/^data:image\/(png|jpe?g|webp|gif);base64,/.test(avatarUrl) || avatarUrl.length > 700000)) {
+      return err('Invalid avatar image');
+    }
     await env.DB.prepare('UPDATE users SET avatar_url = ? WHERE id = ?').bind(avatarUrl, auth.userId).run();
   }
 

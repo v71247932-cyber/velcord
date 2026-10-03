@@ -14,7 +14,7 @@ type View =
     | { type: 'group'; group: Group };
 
 export default function MainLayout() {
-    const { user, logout } = useAuth();
+    const { user, logout, updateUser } = useAuth();
     const [view, setView] = useState<View>({ type: 'friends' });
     const [groups, setGroups] = useState<Group[]>([]);
     const [friendsData, setFriendsData] = useState<FriendsData>({ friends: [], pendingSent: [], pendingReceived: [] });
@@ -77,7 +77,7 @@ export default function MainLayout() {
         setUpdatingProfile(true);
         try {
             const updated = await api.updateProfile(editUsername);
-            useAuth().updateUser(updated);
+            updateUser(updated);
             setShowProfileMenu(false);
         } catch (err: any) {
             alert(err.message);
@@ -86,29 +86,57 @@ export default function MainLayout() {
         }
     }
 
+    // Accepts images up to 10 MB, crops to a centered square and downsizes
+    // to 256x256 so the stored avatar stays small and never gets stretched.
+    async function resizeAvatar(file: File): Promise<string> {
+        const url = URL.createObjectURL(file);
+        try {
+            const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+                const i = new Image();
+                i.onload = () => resolve(i);
+                i.onerror = () => reject(new Error('Could not read this image'));
+                i.src = url;
+            });
+            const SIZE = 256;
+            const side = Math.min(img.naturalWidth, img.naturalHeight);
+            const sx = (img.naturalWidth - side) / 2;
+            const sy = (img.naturalHeight - side) / 2;
+            const canvas = document.createElement('canvas');
+            canvas.width = SIZE;
+            canvas.height = SIZE;
+            const ctx = canvas.getContext('2d')!;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(img, sx, sy, side, side, 0, 0, SIZE, SIZE);
+            return canvas.toDataURL('image/jpeg', 0.88);
+        } finally {
+            URL.revokeObjectURL(url);
+        }
+    }
+
     async function handleAvatarUpload(e: React.ChangeEvent<HTMLInputElement>) {
         const file = e.target.files?.[0];
+        e.target.value = '';
         if (!file) return;
 
-        if (file.size > 1024 * 1024) {
-            alert('File too large (max 1MB)');
+        if (!file.type.startsWith('image/')) {
+            alert('Please choose an image file');
+            return;
+        }
+        if (file.size > 10 * 1024 * 1024) {
+            alert('File too large (max 10 MB)');
             return;
         }
 
-        const reader = new FileReader();
-        reader.onloadend = async () => {
-            const base64 = reader.result as string;
-            setUpdatingProfile(true);
-            try {
-                const updated = await api.updateProfile(undefined, base64);
-                useAuth().updateUser(updated);
-            } catch (err: any) {
-                alert(err.message);
-            } finally {
-                setUpdatingProfile(false);
-            }
-        };
-        reader.readAsDataURL(file);
+        setUpdatingProfile(true);
+        try {
+            const dataUrl = await resizeAvatar(file);
+            const updated = await api.updateProfile(undefined, dataUrl);
+            updateUser(updated);
+        } catch (err: any) {
+            alert(err.message);
+        } finally {
+            setUpdatingProfile(false);
+        }
     }
  
     async function handleRemoveAvatar() {
@@ -116,7 +144,7 @@ export default function MainLayout() {
         setUpdatingProfile(true);
         try {
             const updated = await api.updateProfile(undefined, null);
-            useAuth().updateUser(updated);
+            updateUser(updated);
         } catch (err: any) {
             alert(err.message);
         } finally {
@@ -305,32 +333,31 @@ export default function MainLayout() {
             {showProfileMenu && (
                 <div className="modal-overlay" onClick={() => setShowProfileMenu(false)}>
                     <div className="modal-content profile-modal" onClick={e => e.stopPropagation()}>
-                        <div className="modal-header">
-                            <h2>User Settings</h2>
-                            <button className="close-btn" onClick={() => setShowProfileMenu(false)}>×</button>
+                        <div className="profile-banner" style={{ background: `linear-gradient(135deg, ${user!.avatarColor}, #1e1f22)` }}>
+                            <button className="profile-close" onClick={() => setShowProfileMenu(false)} aria-label="Close">×</button>
                         </div>
                         <div className="profile-edit-body">
-                            <div className="avatar-edit-section">
-                                <div className="avatar-preview-container">
+                            <div className="profile-avatar-row">
+                                <label className="avatar-preview-container">
                                     <Avatar name={user!.username} color={user!.avatarColor} src={user!.avatarUrl} size="lg" />
-                                    <label className="avatar-upload-overlay">
-                                        <span>Change Avatar</span>
-                                        <input type="file" accept="image/*" onChange={handleAvatarUpload} hidden />
-                                    </label>
+                                    <span className="avatar-upload-overlay">Change</span>
+                                    <input type="file" accept="image/*" onChange={handleAvatarUpload} hidden disabled={updatingProfile} />
+                                </label>
+                                <div className="profile-identity">
+                                    <div className="profile-name">{user!.username}</div>
+                                    <div className="avatar-hint">JPG, PNG, GIF or WebP, up to 10 MB</div>
                                 </div>
-                                <div className="avatar-actions">
-                                    <p className="avatar-hint">Click avatar to upload</p>
-                                    {user?.avatarUrl && (
-                                        <button 
-                                            type="button" 
-                                            className="btn-link btn-danger-link" 
-                                            onClick={handleRemoveAvatar}
-                                            style={{ fontSize: 12, marginTop: 4 }}
-                                        >
-                                            Remove Avatar
-                                        </button>
-                                    )}
-                                </div>
+                            </div>
+                            <div className="avatar-buttons">
+                                <label className={`btn-primary avatar-btn ${updatingProfile ? 'disabled' : ''}`}>
+                                    {updatingProfile ? 'Uploading...' : 'Upload picture'}
+                                    <input type="file" accept="image/*" onChange={handleAvatarUpload} hidden disabled={updatingProfile} />
+                                </label>
+                                {user?.avatarUrl && (
+                                    <button type="button" className="avatar-btn avatar-btn-secondary" onClick={handleRemoveAvatar} disabled={updatingProfile}>
+                                        Remove
+                                    </button>
+                                )}
                             </div>
 
                             <form onSubmit={handleUpdateProfile} className="profile-form">
@@ -345,11 +372,7 @@ export default function MainLayout() {
                                     />
                                 </div>
                                 <div className="modal-actions">
-                                    <button
-                                        type="button"
-                                        className="btn-link"
-                                        onClick={() => setShowProfileMenu(false)}
-                                    >
+                                    <button type="button" className="btn-link" onClick={() => setShowProfileMenu(false)}>
                                         Cancel
                                     </button>
                                     <button
@@ -417,59 +440,98 @@ export default function MainLayout() {
                 }
                 .profile-modal {
                     max-width: 440px;
-                    width: 90%;
+                    width: 92%;
+                    padding: 0 !important;
+                    overflow: hidden;
+                    border-radius: 12px;
+                    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
                 }
-                .avatar-edit-section {
+                .profile-banner {
+                    height: 96px;
+                    position: relative;
+                }
+                .profile-close {
+                    position: absolute;
+                    top: 10px;
+                    right: 10px;
+                    width: 32px;
+                    height: 32px;
+                    border-radius: 50%;
+                    border: none;
+                    background: rgba(0,0,0,0.35);
+                    color: white;
+                    font-size: 20px;
+                    line-height: 1;
+                    cursor: pointer;
+                }
+                .profile-close:hover { background: rgba(0,0,0,0.55); }
+                .profile-edit-body { padding: 0 24px 24px; }
+                .profile-avatar-row {
                     display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    margin-bottom: 24px;
+                    align-items: flex-end;
+                    gap: 16px;
+                    margin-top: -44px;
+                    margin-bottom: 16px;
                 }
                 .avatar-preview-container {
                     position: relative;
-                    width: 80px;
-                    height: 80px;
+                    width: 88px;
+                    height: 88px;
                     border-radius: 50%;
+                    border: 6px solid var(--bg-secondary);
+                    box-sizing: content-box;
                     cursor: pointer;
+                    flex-shrink: 0;
+                    overflow: hidden;
+                }
+                .avatar-preview-container .avatar {
+                    width: 88px !important;
+                    height: 88px !important;
+                    font-size: 36px;
                 }
                 .avatar-upload-overlay {
                     position: absolute;
-                    top: 0;
-                    bottom: 0;
-                    left: 0;
-                    right: 0;
-                    background: rgba(0,0,0,0.5);
-                    border-radius: 50%;
+                    inset: 0;
+                    background: rgba(0,0,0,0.55);
                     display: flex;
                     align-items: center;
                     justify-content: center;
                     opacity: 0;
                     transition: opacity 0.2s;
                     color: white;
-                    font-size: 10px;
-                    text-align: center;
-                    padding: 4px;
-                    cursor: pointer;
-                }
-                .avatar-preview-container:hover .avatar-upload-overlay {
-                    opacity: 1;
-                }
-                .avatar-hint {
                     font-size: 12px;
-                    color: var(--text-muted);
-                    margin-top: 8px;
+                    font-weight: 700;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
                 }
-                .avatar-actions {
-                    display: flex;
-                    flex-direction: column;
+                .avatar-preview-container:hover .avatar-upload-overlay { opacity: 1; }
+                .profile-identity { padding-bottom: 6px; min-width: 0; }
+                .profile-name {
+                    font-size: 20px;
+                    font-weight: 700;
+                    color: var(--text-primary);
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .avatar-hint { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+                .avatar-buttons { display: flex; gap: 8px; margin-bottom: 20px; }
+                .avatar-btn {
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                    font-size: 14px;
+                    font-weight: 500;
+                    cursor: pointer;
+                    border: none;
+                    display: inline-flex;
                     align-items: center;
                 }
-                .btn-danger-link {
-                    color: var(--status-danger) !important;
+                .avatar-btn.disabled { opacity: 0.6; pointer-events: none; }
+                .avatar-btn-secondary {
+                    background: var(--bg-accent);
+                    color: var(--status-danger, #ed4245);
                 }
-                .btn-danger-link:hover {
-                    text-decoration: underline;
-                }
+                .avatar-btn-secondary:hover:not(:disabled) { background: var(--bg-hover); }
                 .profile-form .form-group {
                     margin-bottom: 16px;
                 }
