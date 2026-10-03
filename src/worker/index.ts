@@ -143,13 +143,13 @@ async function handleSystemNotify(request: Request, env: Env): Promise<Response>
 const AV = (alias: string, col = 'avatar_url') =>
   `CASE WHEN ${alias}.${col} IS NULL THEN NULL ELSE length(${alias}.${col}) || '-' || substr(${alias}.${col}, -12) END`;
 
-function avatarPath(kind: 'avatars' | 'group-avatars' | 'banners', id: number, token: string | null | undefined): string | null {
+function avatarPath(kind: 'avatars' | 'group-avatars' | 'banners' | 'group-banners', id: number, token: string | null | undefined): string | null {
   return token ? `/api/${kind}/${id}?v=${encodeURIComponent(token)}` : null;
 }
 
-async function handleGetAvatar(env: Env, kind: 'avatars' | 'group-avatars' | 'banners', id: number): Promise<Response> {
-  const table = kind === 'group-avatars' ? 'groups' : 'users';
-  const col = kind === 'banners' ? 'banner_url' : 'avatar_url';
+async function handleGetAvatar(env: Env, kind: 'avatars' | 'group-avatars' | 'banners' | 'group-banners', id: number): Promise<Response> {
+  const table = kind.startsWith('group-') ? 'groups' : 'users';
+  const col = kind.endsWith('banners') ? 'banner_url' : 'avatar_url';
   const row = await env.DB.prepare(`SELECT ${col} as pic FROM ${table} WHERE id = ?`).bind(id).first() as { pic: string | null } | null;
   const m = row?.pic ? /^data:(image\/[a-z+.-]+);base64,(.*)$/s.exec(row.pic) : null;
   if (!m) return new Response('Not found', { status: 404, headers: CORS });
@@ -519,7 +519,7 @@ async function handleGetGroups(request: Request, env: Env): Promise<Response> {
   if (!auth) return err('Unauthorized', 401);
 
   const groups = await env.DB.prepare(`
-    SELECT g.id, g.name, g.owner_id, g.created_at, ${AV('g')} as avatar_url,
+    SELECT g.id, g.name, g.owner_id, g.created_at, ${AV('g')} as avatar_url, ${BANNER_COLS('g')},
            (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) as memberCount
     FROM groups g
     JOIN group_members gm ON g.id = gm.group_id
@@ -533,6 +533,9 @@ async function handleGetGroups(request: Request, env: Env): Promise<Response> {
     ownerId: g.owner_id,
     createdAt: g.created_at,
     avatarUrl: avatarPath('group-avatars', g.id, g.avatar_url),
+    bannerUrl: avatarPath('group-banners', g.id, g.banner_url),
+    bannerColor1: g.banner_c1 ?? null,
+    bannerColor2: g.banner_c2 ?? null,
     memberCount: g.memberCount
   })));
 }
@@ -573,7 +576,7 @@ async function handleUpdateGroup(request: Request, env: Env, groupId: number): P
   const group = await env.DB.prepare('SELECT id, owner_id FROM groups WHERE id = ?').bind(groupId).first() as { id: number; owner_id: number } | null;
   if (!group) return err('Group not found', 404);
   if (group.owner_id !== auth.userId) return err('Only the group owner can change this', 403);
-  const { name, avatarUrl } = await request.json() as { name?: string; avatarUrl?: string | null };
+  const { name, avatarUrl, bannerUrl, bannerColors } = await request.json() as { name?: string; avatarUrl?: string | null; bannerUrl?: string | null; bannerColors?: [string, string] | null };
   if (name !== undefined) {
     const n = String(name).trim();
     if (n.length < 1 || n.length > 50) return err('Group name must be 1-50 characters');
@@ -582,6 +585,23 @@ async function handleUpdateGroup(request: Request, env: Env, groupId: number): P
   if (avatarUrl !== undefined) {
     if (!validAvatar(avatarUrl)) return err('Invalid group image');
     await env.DB.prepare('UPDATE groups SET avatar_url = ? WHERE id = ?').bind(avatarUrl, groupId).run();
+  }
+  // Banner: a picture, or two colours blended. Choosing one clears the other.
+  if (bannerUrl !== undefined) {
+    if (bannerUrl !== null && (typeof bannerUrl !== 'string' || !/^data:image\/(png|jpe?g|webp|gif);base64,/.test(bannerUrl) || bannerUrl.length > 900000)) {
+      return err('Invalid banner image');
+    }
+    await env.DB.prepare('UPDATE groups SET banner_url = ? WHERE id = ?').bind(bannerUrl, groupId).run();
+    if (bannerUrl !== null) await env.DB.prepare('UPDATE groups SET banner_c1 = NULL, banner_c2 = NULL WHERE id = ?').bind(groupId).run();
+  }
+  if (bannerColors !== undefined) {
+    if (bannerColors === null) {
+      await env.DB.prepare('UPDATE groups SET banner_c1 = NULL, banner_c2 = NULL WHERE id = ?').bind(groupId).run();
+    } else {
+      const ok = Array.isArray(bannerColors) && bannerColors.length === 2 && bannerColors.every(c => typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c));
+      if (!ok) return err('Invalid banner colours');
+      await env.DB.prepare('UPDATE groups SET banner_c1 = ?, banner_c2 = ?, banner_url = NULL WHERE id = ?').bind(bannerColors[0], bannerColors[1], groupId).run();
+    }
   }
   return json({ success: true });
 }
@@ -699,6 +719,7 @@ function ensureSchema(env: Env): Promise<void> {
       try { await env.DB.prepare('ALTER TABLE groups ADD COLUMN avatar_url TEXT').run(); } catch { /* already exists */ }
       for (const col of ['banner_url TEXT', 'banner_c1 TEXT', 'banner_c2 TEXT']) {
         try { await env.DB.prepare(`ALTER TABLE users ADD COLUMN ${col}`).run(); } catch { /* already exists */ }
+        try { await env.DB.prepare(`ALTER TABLE groups ADD COLUMN ${col}`).run(); } catch { /* already exists */ }
       }
       await env.DB.batch([
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS uploads (
@@ -996,8 +1017,8 @@ export default {
       }
 
       // Avatars (public, cached by the browser)
-      const avatarMatch = path.match(/^\/api\/(avatars|group-avatars|banners)\/(\d+)$/);
-      if (avatarMatch && request.method === 'GET') return handleGetAvatar(env, avatarMatch[1] as 'avatars' | 'group-avatars' | 'banners', parseInt(avatarMatch[2]));
+      const avatarMatch = path.match(/^\/api\/(avatars|group-avatars|banners|group-banners)\/(\d+)$/);
+      if (avatarMatch && request.method === 'GET') return handleGetAvatar(env, avatarMatch[1] as 'avatars' | 'group-avatars' | 'banners' | 'group-banners', parseInt(avatarMatch[2]));
 
       // Uploads
       if (path === '/api/uploads' && request.method === 'POST') return handleUpload(request, env);

@@ -1,0 +1,42 @@
+/* Group settings window and the slimmer members panel */
+.members-aside { padding: 0; display: flex; flex-direction: column; }
+.members-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 12px 4px 16px; }
+.members-head .members-title { padding: 0; }
+.members-add {
+  width: 30px; height: 30px; border: none; border-radius: 8px; background: transparent;
+  color: var(--text-secondary); display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.members-add:hover { background: var(--bg-hover); color: var(--text-primary); }
+.header-clickable { display: inline-flex; align-items: center; gap: 12px; padding: 4px 8px; margin-left: -8px; border-radius: 8px; cursor: pointer; }
+.header-clickable:hover { background: var(--bg-hover); }
+.header-clickable .header-chevron { color: var(--text-muted); font-size: 12px; }
+
+.gset { max-width: 460px; width: 92%; padding: 0 !important; overflow: hidden; border-radius: 12px; }
+.gset-banner { height: 110px; position: relative; }
+.gset-body { padding: 0 24px 20px; }
+.gset-top { display: flex; align-items: flex-end; gap: 14px; margin-top: -40px; margin-bottom: 14px; }
+.gset-pic { border: 6px solid var(--bg-secondary); border-radius: 50%; background: var(--bg-secondary); flex-shrink: 0; }
+.gset-title { padding-bottom: 6px; min-width: 0; }
+.gset-name { font-size: 20px; font-weight: 800; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gset-sub { font-size: 12px; color: var(--text-muted); }
+.gset-section { margin: 10px 0; padding: 12px 14px; border-radius: 10px; background: var(--bg-modifier); }
+.gset-label { font-size: 12px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px; }
+.gset-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.gset-row + .gset-row { margin-top: 8px; }
+.gset-input { flex: 1; min-width: 0; background: var(--bg-primary); color: var(--text-primary); border: 1px solid transparent; border-radius: 8px; padding: 8px 10px; font-size: 14px; font-family: inherit; outline: none; }
+.gset-input:focus { border-color: var(--blurple); }
+.gset-btn {
+  height: 34px; padding: 0 14px; border: none; border-radius: 10px; cursor: pointer;
+  background: var(--bg-accent); color: var(--text-primary); font-size: 13px; font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center; font-family: inherit;
+}
+.gset-btn:hover:not(:disabled):not(.disabled) { background: var(--bg-hover); }
+.gset-btn:disabled, .gset-btn.disabled { opacity: 0.5; pointer-events: none; }
+.gset-btn.primary { background: linear-gradient(180deg, #6a76f7, #5865f2); color: #fff; }
+.gset-colors { display: flex; align-items: center; gap: 8px; }
+.gset-colors span { font-size: 13px; color: var(--text-muted); margin-right: auto; }
+.gset-colors input[type=color] { width: 34px; height: 30px; padding: 0; border: 2px solid var(--bg-accent); border-radius: 8px; background: none; cursor: pointer; }
+.gset-note { font-size: 13px; color: var(--text-muted); margin: 6px 0 2px; line-height: 1.4; }
+.gset-foot { display: flex; justify-content: flex-end; padding-top: 6px; }
+.gset-close { position: absolute; top: 10px; right: 10px; width: 32px; height: 32px; border-radius: 50%; border: none; background: rgba(0,0,0,0.35); color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.gset-close:hover { background: rgba(0,0,0,0.55); }

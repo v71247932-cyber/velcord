@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../api';
 import type { FriendUser, Group, GroupMember } from '../api';
-import { squareImageDataUrl } from '../uploads';
-import { useAuth } from '../AuthContext';
+import '../group.css';
 import Avatar from './Avatar';
 import VerifiedBadge from './VerifiedBadge';
-import { CrownIcon, ImageIcon, UserPlusIcon, CheckIcon } from './Icons';
+import { CrownIcon, UserPlusIcon, CheckIcon } from './Icons';
 
 interface Props {
     group: Group;
@@ -14,15 +13,10 @@ interface Props {
 }
 
 export default function GroupMembersPanel({ group, friends, onGroupChanged }: Props) {
-    const { user } = useAuth();
-    const isOwner = group.ownerId === user?.id;
-    const [renaming, setRenaming] = useState(false);
-    const [nameDraft, setNameDraft] = useState(group.name);
     const [members, setMembers] = useState<GroupMember[]>([]);
     const [showAdd, setShowAdd] = useState(false);
     const [selected, setSelected] = useState<number[]>([]);
     const [busy, setBusy] = useState(false);
-    const fileRef = useRef<HTMLInputElement>(null);
 
     const load = async () => {
         try { setMembers(await api.getGroupMembers(group.id)); } catch { /* noop */ }
@@ -46,35 +40,6 @@ export default function GroupMembersPanel({ group, friends, onGroupChanged }: Pr
     const offline = members.filter(m => !m.online);
     const memberIds = new Set(members.map(m => m.id));
     const addable = friends.filter(f => !memberIds.has(f.id));
-
-    async function changePhoto(file: File) {
-        setBusy(true);
-        try {
-            const dataUrl = await squareImageDataUrl(file, 256);
-            await api.updateGroup(group.id, { avatarUrl: dataUrl });
-            onGroupChanged();
-        } catch (e: any) {
-            alert(e.message);
-        } finally {
-            setBusy(false);
-        }
-    }
-
-    async function saveName() {
-        const n = nameDraft.trim();
-        if (!n || n === group.name) { setRenaming(false); return; }
-        setBusy(true);
-        try { await api.updateGroup(group.id, { name: n }); onGroupChanged(); setRenaming(false); }
-        catch (e: any) { alert(e.message); }
-        finally { setBusy(false); }
-    }
-
-    async function removePhoto() {
-        setBusy(true);
-        try { await api.updateGroup(group.id, { avatarUrl: null }); onGroupChanged(); }
-        catch (e: any) { alert(e.message); }
-        finally { setBusy(false); }
-    }
 
     async function addSelected() {
         if (selected.length === 0) return;
@@ -102,46 +67,11 @@ export default function GroupMembersPanel({ group, friends, onGroupChanged }: Pr
 
     return (
         <aside className="right-panel members-aside">
-            <div className="group-card">
-                <div className="group-card-photo">
-                    <Avatar name={group.name} color="#5865f2" src={group.avatarUrl ?? undefined} size="xl" zoomable />
-                    {isOwner && (
-                        <button className="group-card-photo-edit" onClick={() => fileRef.current?.click()} disabled={busy} title="Change group photo">
-                            <ImageIcon size={15} />
-                        </button>
-                    )}
-                    <input ref={fileRef} type="file" accept="image/*" hidden
-                        onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) changePhoto(f); }} />
-                </div>
-                {renaming ? (
-                    <input
-                        className="group-name-input"
-                        autoFocus
-                        value={nameDraft}
-                        maxLength={50}
-                        onChange={e => setNameDraft(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') setRenaming(false); }}
-                        onBlur={saveName}
-                    />
-                ) : (
-                    <div className="group-card-name">{group.name}</div>
-                )}
-                <div className="group-card-sub">{members.length} members · {online.length} online</div>
-                <div className="group-card-actions">
-                    <button className="group-action" onClick={() => setShowAdd(true)}>
-                        <UserPlusIcon size={16} /> Add members
-                    </button>
-                    {isOwner && !renaming && (
-                        <button className="group-action" onClick={() => { setNameDraft(group.name); setRenaming(true); }} disabled={busy}>
-                            Rename group
-                        </button>
-                    )}
-                    {isOwner && group.avatarUrl && (
-                        <button className="group-action group-action-quiet" onClick={removePhoto} disabled={busy}>
-                            Remove photo
-                        </button>
-                    )}
-                </div>
+            <div className="members-head">
+                <div className="members-title">Members — {members.length}</div>
+                <button className="members-add" onClick={() => setShowAdd(true)} title="Add members" aria-label="Add members">
+                    <UserPlusIcon size={18} />
+                </button>
             </div>
 
             <div className="members-list">

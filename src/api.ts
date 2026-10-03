@@ -51,7 +51,7 @@ export const api = {
 
     getGroupMembers: (groupId: number) => request<GroupMember[]>('GET', `/api/groups/${groupId}/members`),
 
-    updateGroup: (groupId: number, patch: { name?: string; avatarUrl?: string | null }) =>
+    updateGroup: (groupId: number, patch: { name?: string; avatarUrl?: string | null; bannerUrl?: string | null; bannerColors?: [string, string] | null }) =>
         request<{ success: boolean }>('PATCH', `/api/groups/${groupId}`, patch),
 
     addGroupMembers: (groupId: number, userIds: number[]) =>
@@ -173,5 +173,8 @@ export interface Group {
     ownerId: number;
     createdAt: number;
     avatarUrl?: string | null;
+    bannerUrl?: string | null;
+    bannerColor1?: string | null;
+    bannerColor2?: string | null;
     memberCount?: number;
 }
