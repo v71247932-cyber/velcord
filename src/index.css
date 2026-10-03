@@ -1396,3 +1396,17 @@ body,
   0%, 100% { box-shadow: 0 12px 40px rgba(0,0,0,0.5), 0 0 0 0 rgba(35,165,90,0.5); }
   50% { box-shadow: 0 12px 40px rgba(0,0,0,0.5), 0 0 0 10px rgba(35,165,90,0); }
 }
+
+/* ---- Speaking indicator ---- */
+.call-status { font-size: 12px; color: var(--text-muted); text-align: center; }
+.call-participants { display: flex; justify-content: center; gap: 24px; margin-top: 10px; }
+.call-person { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); max-width: 110px; }
+.call-person span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.call-avatar-ring {
+  border-radius: 50%;
+  padding: 3px;
+  box-shadow: 0 0 0 3px transparent;
+  transition: box-shadow 0.12s ease;
+}
+.call-person.speaking .call-avatar-ring { box-shadow: 0 0 0 3px #23a55a, 0 0 14px 2px rgba(35,165,90,0.6); }
+.call-person.speaking { color: #23a55a; }

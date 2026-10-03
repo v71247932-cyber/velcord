@@ -29,6 +29,31 @@ function describeMediaError(e: any): string {
     return e?.message || 'Could not access the microphone.';
 }
 
+/** Calls onChange(true/false) when the audio in the stream is loud enough to count as speaking. */
+function watchSpeaking(stream: MediaStream, onChange: (speaking: boolean) => void): () => void {
+    const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!Ctx || stream.getAudioTracks().length === 0) return () => {};
+    const ctx: AudioContext = new Ctx();
+    ctx.resume().catch(() => {});
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    ctx.createMediaStreamSource(stream).connect(analyser);
+    const buf = new Uint8Array(analyser.fftSize);
+    let speaking = false;
+    let lastLoud = 0;
+    const iv = setInterval(() => {
+        analyser.getByteTimeDomainData(buf);
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
+        const loud = Math.sqrt(sum / buf.length) > 0.02;
+        const now = Date.now();
+        if (loud) lastLoud = now;
+        const next = now - lastLoud < 350; // hold briefly so the ring does not flicker
+        if (next !== speaking) { speaking = next; onChange(next); }
+    }, 80);
+    return () => { clearInterval(iv); ctx.close().catch(() => {}); onChange(false); };
+}
+
 export function CallProvider({ children }: { children: ReactNode }) {
     const { user } = useAuth();
     const [phase, setPhase] = useState<Phase>('idle');
@@ -40,6 +65,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const [notice, setNotice] = useState<string | null>(null);
     const [askShare, setAskShare] = useState(false);
     const [seconds, setSeconds] = useState(0);
+    const [localSpeaking, setLocalSpeaking] = useState(false);
+    const [remoteSpeaking, setRemoteSpeaking] = useState(false);
 
     // Mutable call state lives in refs so the polling loop never sees stale values
     const phaseRef = useRef<Phase>('idle');
@@ -57,6 +84,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const lastIdRef = useRef<number | null>(null);
     const queueRef = useRef<Promise<void>>(Promise.resolve());
     const videoRef = useRef<HTMLVideoElement>(null);
+    const stopLocalMeterRef = useRef<(() => void) | null>(null);
+    const stopRemoteMeterRef = useRef<(() => void) | null>(null);
 
     const setPhaseBoth = (p: Phase) => { phaseRef.current = p; setPhase(p); };
 
@@ -68,6 +97,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
     const cleanup = useCallback(() => {
         if (ringTimerRef.current) { clearTimeout(ringTimerRef.current); ringTimerRef.current = null; }
+        stopLocalMeterRef.current?.(); stopLocalMeterRef.current = null;
+        stopRemoteMeterRef.current?.(); stopRemoteMeterRef.current = null;
         pcRef.current?.close();
         pcRef.current = null;
         micRef.current?.getTracks().forEach(t => t.stop());
@@ -136,6 +167,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 videoRef.current.srcObject = stream;
                 videoRef.current.play().catch(() => {});
             }
+            if (e.track.kind === 'audio' && !stopRemoteMeterRef.current) {
+                stopRemoteMeterRef.current = watchSpeaking(new MediaStream([e.track]), setRemoteSpeaking);
+            }
+            // Ask the browser to keep playback buffering minimal (less delay on the shared screen)
+            try { (e.receiver as any).jitterBufferTarget = 0; } catch { /* unsupported */ }
+            try { (e.receiver as any).playoutDelayHint = 0; } catch { /* unsupported */ }
             e.track.onmute = updateRemoteSharing;
             e.track.onunmute = updateRemoteSharing;
             e.track.onended = updateRemoteSharing;
@@ -163,6 +200,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
             });
             micRef.current = stream;
             setHasMic(true);
+            stopLocalMeterRef.current?.();
+            stopLocalMeterRef.current = watchSpeaking(stream, setLocalSpeaking);
         } catch (e) {
             micRef.current = null;
             setHasMic(false);
@@ -366,16 +405,46 @@ export function CallProvider({ children }: { children: ReactNode }) {
         if (!pc) return;
         try {
             // The browser shows its own picker (screen / window / tab) and asks for permission here
-            const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false });
+            // Cap capture at 1080p30: a bigger capture overloads the encoder and causes lag
+            const stream = await navigator.mediaDevices.getDisplayMedia({
+                video: { width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 }, frameRate: { ideal: 30, max: 30 } },
+                audio: false,
+            });
             const track = stream.getVideoTracks()[0];
+            // 'motion' keeps the frame rate high instead of dropping to a slideshow to keep text sharp
+            try { track.contentHint = 'motion'; } catch { /* unsupported */ }
             screenRef.current = stream;
-            screenSenderRef.current = pc.addTrack(track, stream);
+            const sender = pc.addTrack(track, stream);
+            screenSenderRef.current = sender;
+            tuneScreenSender(pc, sender);
             track.onended = () => stopScreenShare();
             setSharing(true);
         } catch (e: any) {
             if (e?.name === 'NotAllowedError') setNotice('Screen sharing was cancelled or not allowed.');
             else setNotice(e?.message || 'Could not share the screen.');
         }
+    }
+
+    // Raise the default (very low) bitrate for screen video and prefer smooth frames.
+    // Encoding parameters only exist after negotiation, so retry until they appear.
+    function tuneScreenSender(pc: RTCPeerConnection, sender: RTCRtpSender) {
+        let tries = 0;
+        const attempt = async () => {
+            if (pcRef.current !== pc || screenSenderRef.current !== sender) return;
+            try {
+                const params = sender.getParameters();
+                if (params.encodings && params.encodings.length > 0) {
+                    params.encodings[0].maxBitrate = 5_000_000;
+                    params.encodings[0].maxFramerate = 30;
+                    params.encodings[0].scaleResolutionDownBy = 1;
+                    (params as any).degradationPreference = 'maintain-framerate';
+                    await sender.setParameters(params);
+                    return;
+                }
+            } catch { /* retry */ }
+            if (++tries < 20) setTimeout(attempt, 250);
+        };
+        attempt();
     }
 
     function stopScreenShare() {
@@ -427,15 +496,23 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
             {inCall && peer && (
                 <div className={`call-card call-active ${remoteSharing ? 'call-with-video' : ''}`}>
-                    <div className="call-row">
-                        <Avatar name={peer.username} color={peer.avatarColor} src={peer.avatarUrl} size="sm" />
-                        <div>
-                            <div className="call-title">{peer.username}</div>
-                            <div className="call-sub">
-                                {phase === 'active' ? `${mm}:${ss}` : 'Connecting…'}
-                                {sharing && ' · You are sharing your screen'}
-                                {remoteSharing && ' · Watching their screen'}
+                    <div className="call-status">
+                        {phase === 'active' ? `${mm}:${ss}` : 'Connecting…'}
+                        {remoteSharing && ' · Watching their screen'}
+                        {sharing && ' · You are sharing your screen'}
+                    </div>
+                    <div className="call-participants">
+                        <div className={`call-person ${remoteSpeaking ? 'speaking' : ''}`}>
+                            <div className="call-avatar-ring">
+                                <Avatar name={peer.username} color={peer.avatarColor} src={peer.avatarUrl} size="md" />
                             </div>
+                            <span>{peer.username}</span>
+                        </div>
+                        <div className={`call-person ${localSpeaking && !muted ? 'speaking' : ''}`}>
+                            <div className="call-avatar-ring">
+                                <Avatar name={user!.username} color={user!.avatarColor} src={user!.avatarUrl} size="md" />
+                            </div>
+                            <span>You{muted ? ' (muted)' : ''}</span>
                         </div>
                     </div>
                     <div className="call-buttons">
