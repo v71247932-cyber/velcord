@@ -36,14 +36,15 @@ export const api = {
     rejectFriend: (friendshipId: number) =>
         request<{ success: boolean }>('POST', '/api/friends/reject', { friendshipId }),
 
-    getMessages: (userId: number, since?: number, seen = false) =>
-        request<Message[]>('GET', `/api/messages/${userId}?since=${since || 0}${seen ? '&seen=1' : ''}`),
+    /** afterId = 0 loads the latest page; otherwise only messages newer than that id */
+    getMessages: (userId: number, afterId = 0, seen = false) =>
+        request<Message[]>('GET', `/api/messages/${userId}?after=${afterId}${seen ? '&seen=1' : ''}`),
 
     sendMessage: (userId: number, content: string) =>
         request<Message>('POST', `/api/messages/${userId}`, { content }),
 
-    getGroupMessages: (groupId: number, since?: number) =>
-        request<Message[]>('GET', `/api/groups/${groupId}/messages${since ? `?since=${since}` : ''}`),
+    getGroupMessages: (groupId: number, afterId = 0) =>
+        request<Message[]>('GET', `/api/groups/${groupId}/messages?after=${afterId}`),
 
     sendGroupMessage: (groupId: number, content: string) =>
         request<Message>('POST', `/api/groups/${groupId}/messages`, { content }),
@@ -135,6 +136,8 @@ export interface Message {
     createdAt: number;
     deliveredAt?: number | null;
     readAt?: number | null;
+    /** shown instantly while the server is still saving it */
+    pending?: boolean;
     sender: User;
 }
 

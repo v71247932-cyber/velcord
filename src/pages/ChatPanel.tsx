@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import type { Message, FriendUser } from '../api';
 import { useAuth } from '../AuthContext';
 import Avatar from '../components/Avatar';
 import { MessageContent, Ticks } from '../components/MessageContent';
 import { uploadAsMessage } from '../uploads';
+import { useChat } from '../useChat';
 
 interface ChatPanelProps {
     friend: FriendUser;
@@ -21,79 +22,43 @@ function formatTime(ts: number): string {
 
 export default function ChatPanel({ friend }: ChatPanelProps) {
     const { user } = useAuth();
-    const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
-    const [sending, setSending] = useState(false);
+    const [sending] = useState(false);
     const bottomRef = useRef<HTMLDivElement>(null);
-    const lastTimestamp = useRef<number>(0);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
-    const initialized = useRef(false);
     const fileRef = useRef<HTMLInputElement>(null);
+    const prevCount = useRef(0);
     const [uploading, setUploading] = useState(false);
 
-    const loadMessages = useCallback(async (initial = false) => {
-        try {
-            const since = initial ? 0 : lastTimestamp.current;
-            // Tell the server the chat is being looked at, so the sender gets blue ticks
-            const seen = document.visibilityState === 'visible' && document.hasFocus();
-            const newMsgs = await api.getMessages(friend.id, since, seen);
-            if (newMsgs.length > 0) {
-                if (initial) {
-                    setMessages(newMsgs);
-                } else {
-                    setMessages(prev => {
-                        const known = new Set(prev.map(m => m.id));
-                        return [...prev, ...newMsgs.filter(m => !known.has(m.id))];
-                    });
-                }
-                lastTimestamp.current = Math.max(...newMsgs.map(m => m.createdAt));
-            }
-            // Refresh ticks on my own messages
-            const statuses = await api.getMessageStatus(friend.id);
-            const byId = new Map(statuses.map(s => [s.id, s]));
-            setMessages(prev => {
-                let changed = false;
-                const next = prev.map(m => {
-                    const st = byId.get(m.id);
-                    if (!st || m.sender.id === friend.id) return m;
-                    if ((st.deliveredAt ?? null) === (m.deliveredAt ?? null) && (st.readAt ?? null) === (m.readAt ?? null)) return m;
-                    changed = true;
-                    return { ...m, deliveredAt: st.deliveredAt, readAt: st.readAt };
-                });
-                return changed ? next : prev;
-            });
-        } catch { /* noop */ }
-    }, [friend.id]);
+    const { messages, setMessages, send } = useChat({
+        key: `dm-${friend.id}`,
+        me: user!,
+        // Tell the server the chat is being looked at, so the sender gets blue ticks
+        fetchMessages: (afterId) => api.getMessages(friend.id, afterId, document.visibilityState === 'visible' && document.hasFocus()),
+        sendMessage: (content) => api.sendMessage(friend.id, content),
+        fetchStatuses: () => api.getMessageStatus(friend.id),
+    });
 
-    // Initial load + polling
+    // Jump straight to the bottom on the first load, scroll smoothly for single new messages
     useEffect(() => {
-        initialized.current = false;
-        setMessages([]);
-        lastTimestamp.current = 0;
-        loadMessages(true).then(() => { initialized.current = true; });
-        const interval = setInterval(() => loadMessages(false), 2000);
-        return () => clearInterval(interval);
-    }, [friend.id, loadMessages]);
-
-    // Auto-scroll on new messages
-    useEffect(() => {
-        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+        const jump = prevCount.current === 0 || messages.length - prevCount.current > 1;
+        bottomRef.current?.scrollIntoView({ behavior: jump ? 'auto' : 'smooth' });
+        prevCount.current = messages.length;
     }, [messages]);
+    useEffect(() => { prevCount.current = 0; }, [friend.id]);
 
     async function handleSend() {
         const content = input.trim();
         if (!content || sending) return;
         setInput('');
-        setSending(true);
+        if (textareaRef.current) textareaRef.current.style.height = 'auto';
         try {
-            const msg = await api.sendMessage(friend.id, content);
-            setMessages(prev => [...prev, { ...msg, sender: user! }]);
-            lastTimestamp.current = Math.max(lastTimestamp.current, msg.createdAt);
-        } catch { /* noop */ }
-        finally {
-            setSending(false);
-            textareaRef.current?.focus();
+            await send(content);
+        } catch (err: any) {
+            setInput(content);
+            alert(err.message || 'Message not sent');
         }
+        textareaRef.current?.focus();
     }
 
     async function sendImage(file: File) {
@@ -101,9 +66,7 @@ export default function ChatPanel({ friend }: ChatPanelProps) {
         setUploading(true);
         try {
             const content = await uploadAsMessage(file);
-            const msg = await api.sendMessage(friend.id, content);
-            setMessages(prev => [...prev, { ...msg, sender: user! }]);
-            lastTimestamp.current = Math.max(lastTimestamp.current, msg.createdAt);
+            await send(content);
         } catch (err: any) {
             alert(err.message);
         } finally {
@@ -136,7 +99,7 @@ export default function ChatPanel({ friend }: ChatPanelProps) {
     async function handleDeleteMessage(e: React.MouseEvent, msg: Message) {
         if (e.shiftKey) {
             e.stopPropagation();
-            if (msg.sender.id !== user?.id) return; // Only delete own messages
+            if (msg.pending || msg.sender.id !== user?.id) return; // Only delete own messages
 
             if (confirm('Delete this message?')) {
                 try {

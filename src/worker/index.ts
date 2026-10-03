@@ -73,6 +73,34 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
   return derived === hashHex;
 }
 
+// --- Avatars ---
+// Pictures are stored as data URLs. API responses never carry them: queries return a short
+// version token and the client loads /api/avatars/<id>?v=<token>, which the browser caches.
+const AV = (alias: string) =>
+  `CASE WHEN ${alias}.avatar_url IS NULL THEN NULL ELSE length(${alias}.avatar_url) || '-' || substr(${alias}.avatar_url, -12) END`;
+
+function avatarPath(kind: 'avatars' | 'group-avatars', id: number, token: string | null | undefined): string | null {
+  return token ? `/api/${kind}/${id}?v=${encodeURIComponent(token)}` : null;
+}
+
+async function handleGetAvatar(env: Env, kind: 'avatars' | 'group-avatars', id: number): Promise<Response> {
+  const table = kind === 'avatars' ? 'users' : 'groups';
+  const row = await env.DB.prepare(`SELECT avatar_url FROM ${table} WHERE id = ?`).bind(id).first() as { avatar_url: string | null } | null;
+  const m = row?.avatar_url ? /^data:(image\/[a-z+.-]+);base64,(.*)$/s.exec(row.avatar_url) : null;
+  if (!m) return new Response('Not found', { status: 404, headers: CORS });
+  const bin = atob(m[2]);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return new Response(out, {
+    headers: {
+      'Content-Type': m[1],
+      'Cache-Control': 'public, max-age=31536000, immutable', // the ?v= token changes with the picture
+      'X-Content-Type-Options': 'nosniff',
+      ...CORS,
+    },
+  });
+}
+
 // --- Auth middleware ---
 async function getAuth(request: Request, env: Env): Promise<{ userId: number; username: string } | null> {
   const auth = request.headers.get('Authorization');
@@ -127,7 +155,7 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
   if (!username || !password) return err('Username and password are required');
 
   const user = await env.DB.prepare(
-    'SELECT id, username, password_hash, avatar_color, avatar_url FROM users WHERE username = ?'
+    `SELECT id, username, password_hash, avatar_color, ${AV('users')} as avatar_url FROM users WHERE username = ?`
   ).bind(username).first() as { id: number; username: string; password_hash: string; avatar_color: string; avatar_url: string | null } | null;
 
   if (!user) return err('Invalid username or password', 401);
@@ -135,16 +163,16 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
   if (!ok) return err('Invalid username or password', 401);
 
   const token = await signJWT({ userId: user.id, username: user.username }, env.JWT_SECRET);
-  return json({ token, user: { id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: user.avatar_url } });
+  return json({ token, user: { id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url) } });
 }
 
 async function handleMe(request: Request, env: Env): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
-  const user = await env.DB.prepare('SELECT id, username, avatar_color, avatar_url FROM users WHERE id = ?')
-    .bind(auth.userId).first() as { id: number; username: string; avatar_color: string; avatar_url: string } | null;
+  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV('users')} as avatar_url FROM users WHERE id = ?`)
+    .bind(auth.userId).first() as { id: number; username: string; avatar_color: string; avatar_url: string | null } | null;
   if (!user) return err('User not found', 404);
-  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: user.avatar_url });
+  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url) });
 }
 
 async function handleUpdateProfile(request: Request, env: Env): Promise<Response> {
@@ -167,11 +195,11 @@ async function handleUpdateProfile(request: Request, env: Env): Promise<Response
     await env.DB.prepare('UPDATE users SET avatar_url = ? WHERE id = ?').bind(avatarUrl, auth.userId).run();
   }
 
-  const user = await env.DB.prepare('SELECT id, username, avatar_color, avatar_url FROM users WHERE id = ?')
+  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV('users')} as avatar_url FROM users WHERE id = ?`)
     .bind(auth.userId).first() as { id: number; username: string; avatar_color: string; avatar_url: string | null } | null;
 
   if (!user) return err('User not found', 404);
-  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: user.avatar_url });
+  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url) });
 }
 
 function previewOf(content: string | null): string | null {
@@ -188,45 +216,43 @@ function isOnline(lastSeen: number | null): boolean {
 async function handleGetFriends(request: Request, env: Env): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
+  const me = auth.userId;
 
-  // The app polls this endpoint while open, so anything addressed to this user counts as delivered
-  await env.DB.prepare('UPDATE direct_messages SET delivered_at = unixepoch() WHERE receiver_id = ? AND delivered_at IS NULL')
-    .bind(auth.userId).run();
-  // Presence: the app polls this endpoint while open, so it doubles as a heartbeat
-  await env.DB.prepare('UPDATE users SET last_seen = unixepoch() WHERE id = ?').bind(auth.userId).run();
+  // One round trip. The app polls this endpoint while open, so it also marks messages as
+  // delivered and acts as the presence heartbeat.
+  const [, , friends, sent, received] = await env.DB.batch([
+    env.DB.prepare('UPDATE direct_messages SET delivered_at = unixepoch() WHERE receiver_id = ? AND delivered_at IS NULL').bind(me),
+    env.DB.prepare('UPDATE users SET last_seen = unixepoch() WHERE id = ?').bind(me),
+    env.DB.prepare(`
+      SELECT u.id, u.username, u.avatar_color, ${AV('u')} as avatar_url, u.last_seen, f.id as friendship_id,
+             (SELECT COUNT(*) FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL) as unread,
+             (SELECT MAX(dm.id) FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL) as last_unread_id,
+             (SELECT dm.content FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL ORDER BY dm.id DESC LIMIT 1) as preview
+      FROM friendships f
+      JOIN users u ON u.id = CASE WHEN f.requester_id = ? THEN f.addressee_id ELSE f.requester_id END
+      WHERE (f.requester_id = ? OR f.addressee_id = ?) AND f.status = 'accepted'
+    `).bind(me, me, me, me, me, me),
+    env.DB.prepare(`
+      SELECT u.id, u.username, u.avatar_color, ${AV('u')} as avatar_url, u.last_seen, f.id as friendship_id
+      FROM friendships f JOIN users u ON u.id = f.addressee_id
+      WHERE f.requester_id = ? AND f.status = 'pending'
+    `).bind(me),
+    env.DB.prepare(`
+      SELECT u.id, u.username, u.avatar_color, ${AV('u')} as avatar_url, u.last_seen, f.id as friendship_id
+      FROM friendships f JOIN users u ON u.id = f.requester_id
+      WHERE f.addressee_id = ? AND f.status = 'pending'
+    `).bind(me),
+  ]);
 
-  // Accepted friends
-  const friends = await env.DB.prepare(`
-    SELECT u.id, u.username, u.avatar_color, u.avatar_url, u.last_seen, f.id as friendship_id,
-           CASE WHEN f.requester_id = ? THEN 'sent' ELSE 'received' END as direction,
-           (SELECT COUNT(*) FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL) as unread,
-           (SELECT MAX(dm.id) FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL) as last_unread_id,
-           (SELECT dm.content FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL ORDER BY dm.id DESC LIMIT 1) as preview
-    FROM friendships f
-    JOIN users u ON u.id = CASE WHEN f.requester_id = ? THEN f.addressee_id ELSE f.requester_id END
-    WHERE (f.requester_id = ? OR f.addressee_id = ?) AND f.status = 'accepted'
-  `).bind(auth.userId, auth.userId, auth.userId, auth.userId, auth.userId, auth.userId, auth.userId).all();
-
-  // Pending sent
-  const sent = await env.DB.prepare(`
-    SELECT u.id, u.username, u.avatar_color, u.avatar_url, u.last_seen, f.id as friendship_id
-    FROM friendships f
-    JOIN users u ON u.id = f.addressee_id
-    WHERE f.requester_id = ? AND f.status = 'pending'
-  `).bind(auth.userId).all();
-
-  // Pending received
-  const received = await env.DB.prepare(`
-    SELECT u.id, u.username, u.avatar_color, u.avatar_url, u.last_seen, f.id as friendship_id
-    FROM friendships f
-    JOIN users u ON u.id = f.requester_id
-    WHERE f.addressee_id = ? AND f.status = 'pending'
-  `).bind(auth.userId).all();
-
+  const person = (r: any) => ({
+    id: r.id, username: r.username, avatarColor: r.avatar_color,
+    avatarUrl: avatarPath('avatars', r.id, r.avatar_url),
+    online: isOnline(r.last_seen), friendshipId: r.friendship_id,
+  });
   return json({
-    friends: friends.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: r.avatar_url, online: isOnline(r.last_seen), unread: r.unread || 0, lastUnreadId: r.last_unread_id || 0, preview: previewOf(r.preview), friendshipId: r.friendship_id })),
-    pendingSent: sent.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: r.avatar_url, online: isOnline(r.last_seen), friendshipId: r.friendship_id })),
-    pendingReceived: received.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: r.avatar_url, online: isOnline(r.last_seen), friendshipId: r.friendship_id })),
+    friends: friends.results.map((r: any) => ({ ...person(r), unread: r.unread || 0, lastUnreadId: r.last_unread_id || 0, preview: previewOf(r.preview) })),
+    pendingSent: sent.results.map(person),
+    pendingReceived: received.results.map(person),
   });
 }
 
@@ -284,48 +310,48 @@ async function handleRejectFriend(request: Request, env: Env): Promise<Response>
   return json({ success: true });
 }
 
+const PAGE_FIRST = 60;
+
 async function handleGetMessages(request: Request, env: Env, otherUserId: number): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
-
-  // Verify they have any friendship record (pending or accepted)
-  const friendship = await env.DB.prepare(
-    "SELECT id FROM friendships WHERE status = 'accepted' AND ((requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?))"
-  ).bind(auth.userId, otherUserId, otherUserId, auth.userId).first();
-  if (!friendship) return err('You are not friends with this user yet', 403);
-
+  const me = auth.userId;
   const url = new URL(request.url);
-  const since = url.searchParams.get('since') || '0';
+  const afterParam = url.searchParams.get('after');
+  const initial = afterParam === '0';
+  const afterId = parseInt(afterParam || '0') || 0;
+  const legacySince = afterParam === null ? (url.searchParams.get('since') || '0') : null; // older open tabs
 
-  // Fetching = delivered; fetching while the chat is visible (seen=1) = seen
-  if (url.searchParams.get('seen') === '1') {
-    await env.DB.prepare(
-      'UPDATE direct_messages SET read_at = unixepoch(), delivered_at = COALESCE(delivered_at, unixepoch()) WHERE receiver_id = ? AND sender_id = ? AND read_at IS NULL'
-    ).bind(auth.userId, otherUserId).run();
-  } else {
-    await env.DB.prepare(
-      'UPDATE direct_messages SET delivered_at = unixepoch() WHERE receiver_id = ? AND sender_id = ? AND delivered_at IS NULL'
-    ).bind(auth.userId, otherUserId).run();
-  }
+  const pair = '((dm.sender_id = ? AND dm.receiver_id = ?) OR (dm.sender_id = ? AND dm.receiver_id = ?))';
+  const select = `SELECT dm.id, dm.content, dm.created_at, dm.delivered_at, dm.read_at,
+           u.id as sender_id, u.username as sender_username, u.avatar_color as sender_avatar_color, ${AV('u')} as sender_avatar_url
+    FROM direct_messages dm JOIN users u ON u.id = dm.sender_id`;
+  const messagesStmt = legacySince !== null
+    ? env.DB.prepare(`${select} WHERE ${pair} AND dm.created_at > ? ORDER BY dm.created_at ASC, dm.id ASC LIMIT 100`).bind(me, otherUserId, otherUserId, me, legacySince)
+    : initial
+      ? env.DB.prepare(`${select} WHERE ${pair} ORDER BY dm.id DESC LIMIT ${PAGE_FIRST}`).bind(me, otherUserId, otherUserId, me)
+      : env.DB.prepare(`${select} WHERE ${pair} AND dm.id > ? ORDER BY dm.id ASC LIMIT 100`).bind(me, otherUserId, otherUserId, me, afterId);
 
-  const messages = await env.DB.prepare(`
-    SELECT dm.id, dm.content, dm.created_at, dm.delivered_at, dm.read_at,
-           u.id as sender_id, u.username as sender_username, u.avatar_color as sender_avatar_color, u.avatar_url as sender_avatar_url
-    FROM direct_messages dm
-    JOIN users u ON u.id = dm.sender_id
-    WHERE ((dm.sender_id = ? AND dm.receiver_id = ?) OR (dm.sender_id = ? AND dm.receiver_id = ?))
-      AND dm.created_at > ?
-    ORDER BY dm.created_at ASC, dm.id ASC
-    LIMIT 100
-  `).bind(auth.userId, otherUserId, otherUserId, auth.userId, since).all();
+  // Fetching = delivered; fetching while the chat is visible (seen=1) = seen. All in one round trip.
+  const markStmt = url.searchParams.get('seen') === '1'
+    ? env.DB.prepare('UPDATE direct_messages SET read_at = unixepoch(), delivered_at = COALESCE(delivered_at, unixepoch()) WHERE receiver_id = ? AND sender_id = ? AND read_at IS NULL').bind(me, otherUserId)
+    : env.DB.prepare('UPDATE direct_messages SET delivered_at = unixepoch() WHERE receiver_id = ? AND sender_id = ? AND delivered_at IS NULL').bind(me, otherUserId);
 
-  return json(messages.results.map((m: any) => ({
+  const [friendship, , messages] = await env.DB.batch([
+    env.DB.prepare("SELECT id FROM friendships WHERE status = 'accepted' AND ((requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?))").bind(me, otherUserId, otherUserId, me),
+    markStmt,
+    messagesStmt,
+  ]);
+  if (friendship.results.length === 0) return err('You are not friends with this user yet', 403);
+
+  const rows = initial ? [...messages.results].reverse() : messages.results;
+  return json(rows.map((m: any) => ({
     id: m.id,
     content: m.content,
     createdAt: m.created_at,
     deliveredAt: m.delivered_at,
     readAt: m.read_at,
-    sender: { id: m.sender_id, username: m.sender_username, avatarColor: m.sender_avatar_color, avatarUrl: m.sender_avatar_url }
+    sender: { id: m.sender_id, username: m.sender_username, avatarColor: m.sender_avatar_color, avatarUrl: avatarPath('avatars', m.sender_id, m.sender_avatar_url) },
   })));
 }
 
@@ -350,15 +376,15 @@ async function handleSendMessage(request: Request, env: Env, otherUserId: number
   if (!content?.trim()) return err('Message cannot be empty');
   if (content.length > 2000) return err('Message too long (max 2000 chars)');
 
-  // Verify they have any friendship record
-  const friendship = await env.DB.prepare(
-    "SELECT id FROM friendships WHERE status = 'accepted' AND ((requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?))"
-  ).bind(auth.userId, otherUserId, otherUserId, auth.userId).first();
-  if (!friendship) return err('You are not friends with this user yet', 403);
-
-  const result = await env.DB.prepare(
-    'INSERT INTO direct_messages (sender_id, receiver_id, content) VALUES (?, ?, ?) RETURNING id, created_at'
-  ).bind(auth.userId, otherUserId, content.trim()).first() as { id: number; created_at: number };
+  // Friendship check and insert in one statement
+  const result = await env.DB.prepare(`
+    INSERT INTO direct_messages (sender_id, receiver_id, content)
+    SELECT ?, ?, ?
+    WHERE EXISTS (SELECT 1 FROM friendships WHERE status = 'accepted'
+                  AND ((requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)))
+    RETURNING id, created_at
+  `).bind(auth.userId, otherUserId, content.trim(), auth.userId, otherUserId, otherUserId, auth.userId).first() as { id: number; created_at: number } | null;
+  if (!result) return err('You are not friends with this user yet', 403);
 
   return json({ id: result.id, content: content.trim(), createdAt: result.created_at, senderId: auth.userId }, 201);
 }
@@ -395,7 +421,8 @@ async function handleGetGroups(request: Request, env: Env): Promise<Response> {
   if (!auth) return err('Unauthorized', 401);
 
   const groups = await env.DB.prepare(`
-    SELECT g.*, (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) as memberCount
+    SELECT g.id, g.name, g.owner_id, g.created_at, ${AV('g')} as avatar_url,
+           (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) as memberCount
     FROM groups g
     JOIN group_members gm ON g.id = gm.group_id
     WHERE gm.user_id = ?
@@ -407,7 +434,7 @@ async function handleGetGroups(request: Request, env: Env): Promise<Response> {
     name: g.name,
     ownerId: g.owner_id,
     createdAt: g.created_at,
-    avatarUrl: g.avatar_url ?? null,
+    avatarUrl: avatarPath('group-avatars', g.id, g.avatar_url),
     memberCount: g.memberCount
   })));
 }
@@ -419,7 +446,7 @@ async function handleGroupMembers(request: Request, env: Env, groupId: number): 
     .bind(groupId, auth.userId).first();
   if (!isMember) return err('Not a member of this group', 403);
   const rows = await env.DB.prepare(`
-    SELECT u.id, u.username, u.avatar_color, u.avatar_url, u.last_seen, g.owner_id
+    SELECT u.id, u.username, u.avatar_color, ${AV('u')} as avatar_url, u.last_seen, g.owner_id
     FROM group_members gm
     JOIN users u ON u.id = gm.user_id
     JOIN groups g ON g.id = gm.group_id
@@ -430,7 +457,7 @@ async function handleGroupMembers(request: Request, env: Env, groupId: number): 
     id: r.id,
     username: r.username,
     avatarColor: r.avatar_color,
-    avatarUrl: r.avatar_url,
+    avatarUrl: avatarPath('avatars', r.id, r.avatar_url),
     online: r.id === auth.userId || isOnline(r.last_seen),
     isOwner: r.id === r.owner_id,
   })));
@@ -499,31 +526,33 @@ async function handleDeleteGroup(request: Request, env: Env, groupId: number): P
 async function handleGetGroupMessages(request: Request, env: Env, groupId: number): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
-
-  // Verify user is a member
-  const isMember = await env.DB.prepare(
-    'SELECT id FROM group_members WHERE group_id = ? AND user_id = ?'
-  ).bind(groupId, auth.userId).first();
-  if (!isMember) return err('Not a member of this group', 403);
-
   const url = new URL(request.url);
-  const since = url.searchParams.get('since') || '0';
+  const afterParam = url.searchParams.get('after');
+  const initial = afterParam === '0';
+  const afterId = parseInt(afterParam || '0') || 0;
+  const legacySince = afterParam === null ? (url.searchParams.get('since') || '0') : null; // older open tabs
 
-  const messages = await env.DB.prepare(`
-    SELECT gm.id, gm.content, gm.created_at,
-           u.id as sender_id, u.username as sender_username, u.avatar_color as sender_avatar_color, u.avatar_url as sender_avatar_url
-    FROM group_messages gm
-    JOIN users u ON u.id = gm.sender_id
-    WHERE gm.group_id = ? AND gm.created_at > ?
-    ORDER BY gm.created_at ASC, gm.id ASC
-    LIMIT 100
-  `).bind(groupId, since).all();
+  const select = `SELECT gm.id, gm.content, gm.created_at,
+           u.id as sender_id, u.username as sender_username, u.avatar_color as sender_avatar_color, ${AV('u')} as sender_avatar_url
+    FROM group_messages gm JOIN users u ON u.id = gm.sender_id`;
+  const messagesStmt = legacySince !== null
+    ? env.DB.prepare(`${select} WHERE gm.group_id = ? AND gm.created_at > ? ORDER BY gm.created_at ASC, gm.id ASC LIMIT 100`).bind(groupId, legacySince)
+    : initial
+      ? env.DB.prepare(`${select} WHERE gm.group_id = ? ORDER BY gm.id DESC LIMIT ${PAGE_FIRST}`).bind(groupId)
+      : env.DB.prepare(`${select} WHERE gm.group_id = ? AND gm.id > ? ORDER BY gm.id ASC LIMIT 100`).bind(groupId, afterId);
 
-  return json(messages.results.map((m: any) => ({
+  const [member, messages] = await env.DB.batch([
+    env.DB.prepare('SELECT id FROM group_members WHERE group_id = ? AND user_id = ?').bind(groupId, auth.userId),
+    messagesStmt,
+  ]);
+  if (member.results.length === 0) return err('Not a member of this group', 403);
+
+  const rows = initial ? [...messages.results].reverse() : messages.results;
+  return json(rows.map((m: any) => ({
     id: m.id,
     content: m.content,
     createdAt: m.created_at,
-    sender: { id: m.sender_id, username: m.sender_username, avatarColor: m.sender_avatar_color, avatarUrl: m.sender_avatar_url }
+    sender: { id: m.sender_id, username: m.sender_username, avatarColor: m.sender_avatar_color, avatarUrl: avatarPath('avatars', m.sender_id, m.sender_avatar_url) },
   })));
 }
 
@@ -547,15 +576,14 @@ async function handleSendGroupMessage(request: Request, env: Env, groupId: numbe
   const { content } = await request.json() as { content: string };
   if (!content?.trim()) return err('Message cannot be empty');
 
-  // Verify membership
-  const isMember = await env.DB.prepare(
-    'SELECT id FROM group_members WHERE group_id = ? AND user_id = ?'
-  ).bind(groupId, auth.userId).first();
-  if (!isMember) return err('Not a member of this group', 403);
-
-  const result = await env.DB.prepare(
-    'INSERT INTO group_messages (group_id, sender_id, content) VALUES (?, ?, ?) RETURNING id, created_at'
-  ).bind(groupId, auth.userId, content.trim()).first() as { id: number; created_at: number };
+  // Membership check and insert in one statement
+  const result = await env.DB.prepare(`
+    INSERT INTO group_messages (group_id, sender_id, content)
+    SELECT ?, ?, ?
+    WHERE EXISTS (SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?)
+    RETURNING id, created_at
+  `).bind(groupId, auth.userId, content.trim(), groupId, auth.userId).first() as { id: number; created_at: number } | null;
+  if (!result) return err('Not a member of this group', 403);
 
   return json({ id: result.id, content: content.trim(), createdAt: result.created_at, senderId: auth.userId }, 201);
 }
@@ -689,7 +717,7 @@ async function handleCallPoll(request: Request, env: Env): Promise<Response> {
   const after = parseInt(url.searchParams.get('after') || '0') || 0;
   const rows = await env.DB.prepare(`
     SELECT s.id, s.from_id, s.type, s.payload, s.created_at,
-           u.username, u.avatar_color, u.avatar_url
+           u.username, u.avatar_color, ${AV('u')} as avatar_url
     FROM call_signals s JOIN users u ON u.id = s.from_id
     WHERE s.to_id = ? AND s.id > ?
     ORDER BY s.id ASC LIMIT 100
@@ -701,7 +729,7 @@ async function handleCallPoll(request: Request, env: Env): Promise<Response> {
     now,
     signals: rows.results.map((r: any) => ({
       id: r.id,
-      from: { id: r.from_id, username: r.username, avatarColor: r.avatar_color, avatarUrl: r.avatar_url },
+      from: { id: r.from_id, username: r.username, avatarColor: r.avatar_color, avatarUrl: avatarPath('avatars', r.from_id, r.avatar_url) },
       type: r.type,
       payload: r.payload,
       createdAt: r.created_at,
@@ -726,6 +754,10 @@ export default {
       }
 
       await ensureSchema(env);
+
+      // Avatars (public, cached by the browser)
+      const avatarMatch = path.match(/^\/api\/(avatars|group-avatars)\/(\d+)$/);
+      if (avatarMatch && request.method === 'GET') return handleGetAvatar(env, avatarMatch[1] as 'avatars' | 'group-avatars', parseInt(avatarMatch[2]));
 
       // Uploads
       if (path === '/api/uploads' && request.method === 'POST') return handleUpload(request, env);

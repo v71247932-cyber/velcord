@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import type { Message, Group } from '../api';
 import { useAuth } from '../AuthContext';
 import Avatar from '../components/Avatar';
 import { MessageContent } from '../components/MessageContent';
 import { uploadAsMessage } from '../uploads';
+import { useChat } from '../useChat';
 
 interface GroupChatPanelProps {
     group: Group;
@@ -21,58 +22,40 @@ function formatTime(ts: number): string {
 
 export default function GroupChatPanel({ group }: GroupChatPanelProps) {
     const { user } = useAuth();
-    const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
-    const [sending, setSending] = useState(false);
+    const [sending] = useState(false);
     const bottomRef = useRef<HTMLDivElement>(null);
-    const lastTimestamp = useRef<number>(0);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
-    const initialized = useRef(false);
     const fileRef = useRef<HTMLInputElement>(null);
+    const prevCount = useRef(0);
     const [uploading, setUploading] = useState(false);
 
-    const loadMessages = useCallback(async (initial = false) => {
-        try {
-            const since = initial ? 0 : lastTimestamp.current;
-            const newMsgs = await api.getGroupMessages(group.id, since);
-            if (newMsgs.length > 0) {
-                if (initial) {
-                    setMessages(newMsgs);
-                } else {
-                    setMessages(prev => [...prev, ...newMsgs]);
-                }
-                lastTimestamp.current = Math.max(...newMsgs.map(m => m.createdAt));
-            }
-        } catch { /* noop */ }
-    }, [group.id]);
+    const { messages, setMessages, send } = useChat({
+        key: `group-${group.id}`,
+        me: user!,
+        fetchMessages: (afterId) => api.getGroupMessages(group.id, afterId),
+        sendMessage: (content) => api.sendGroupMessage(group.id, content),
+    });
 
     useEffect(() => {
-        initialized.current = false;
-        setMessages([]);
-        lastTimestamp.current = 0;
-        loadMessages(true).then(() => { initialized.current = true; });
-        const interval = setInterval(() => loadMessages(false), 2000);
-        return () => clearInterval(interval);
-    }, [group.id, loadMessages]);
-
-    useEffect(() => {
-        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+        const jump = prevCount.current === 0 || messages.length - prevCount.current > 1;
+        bottomRef.current?.scrollIntoView({ behavior: jump ? 'auto' : 'smooth' });
+        prevCount.current = messages.length;
     }, [messages]);
+    useEffect(() => { prevCount.current = 0; }, [group.id]);
 
     async function handleSend() {
         const content = input.trim();
-        if (!content || sending) return;
+        if (!content) return;
         setInput('');
-        setSending(true);
+        if (textareaRef.current) textareaRef.current.style.height = 'auto';
         try {
-            const msg = await api.sendGroupMessage(group.id, content);
-            setMessages(prev => [...prev, { ...msg, sender: user! }]);
-            lastTimestamp.current = Math.max(lastTimestamp.current, msg.createdAt);
-        } catch { /* noop */ }
-        finally {
-            setSending(false);
-            textareaRef.current?.focus();
+            await send(content);
+        } catch (err: any) {
+            setInput(content);
+            alert(err.message || 'Message not sent');
         }
+        textareaRef.current?.focus();
     }
 
     async function sendImage(file: File) {
@@ -80,9 +63,7 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
         setUploading(true);
         try {
             const content = await uploadAsMessage(file);
-            const msg = await api.sendGroupMessage(group.id, content);
-            setMessages(prev => [...prev, { ...msg, sender: user! }]);
-            lastTimestamp.current = Math.max(lastTimestamp.current, msg.createdAt);
+            await send(content);
         } catch (err: any) {
             alert(err.message);
         } finally {
@@ -114,7 +95,7 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
     async function handleDeleteMessage(e: React.MouseEvent, msg: Message) {
         if (e.shiftKey) {
             e.stopPropagation();
-            if (msg.sender.id !== user?.id) return; // Only delete own messages
+            if (msg.pending || msg.sender.id !== user?.id) return; // Only delete own messages
 
             if (confirm('Delete this message?')) {
                 try {

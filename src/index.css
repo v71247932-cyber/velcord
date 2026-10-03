@@ -1604,3 +1604,17 @@ body,
 .desktop-install-cmd code { flex: 1; min-width: 0; font-size: 12px; color: var(--text-primary); overflow-x: auto; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .desktop-install-cmd button { flex-shrink: 0; border: none; border-radius: 5px; padding: 5px 10px; font-size: 12px; font-weight: 600; background: var(--bg-accent); color: var(--text-primary); cursor: pointer; }
 .desktop-install-cmd button:hover { background: var(--blurple); color: #fff; }
+.ticks-pending { opacity: 0.55; }
+
+/* ---- Groups in the left rail ---- */
+.nav-sidebar { overflow-y: auto; scrollbar-width: none; }
+.nav-sidebar::-webkit-scrollbar { display: none; }
+.nav-group-btn { padding: 0; overflow: hidden; background: var(--bg-accent); }
+.nav-group-btn img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.nav-group-btn span { color: #fff; font-weight: 700; font-size: 14px; }
+.nav-group-btn:hover { background: var(--blurple); }
+.nav-group-btn.active { border-radius: 35%; background: var(--blurple); }
+.nav-icon-btn.add-btn { color: #23a55a; background: var(--bg-accent); }
+.nav-icon-btn.add-btn:hover { background: #23a55a; color: #fff; border-radius: 35%; }
+.dm-section-label { display: block !important; margin: 4px 8px 6px; }
+.dm-list .dm-section-label.sidebar-section-label { display: block !important; }

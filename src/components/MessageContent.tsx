@@ -20,6 +20,13 @@ export function MessageContent({ content }: { content: string }) {
 
 /** One grey tick = sent, two grey = delivered, two blue = seen. */
 export function Ticks({ msg }: { msg: Message }) {
+    if (msg.pending) {
+        return (
+            <span className="ticks ticks-pending" title="Sending" aria-label="Sending">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+            </span>
+        );
+    }
     const seen = !!msg.readAt;
     const delivered = !!msg.deliveredAt || seen;
     const label = seen ? 'Seen' : delivered ? 'Delivered' : 'Sent';

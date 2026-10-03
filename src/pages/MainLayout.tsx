@@ -226,32 +226,38 @@ export default function MainLayout() {
                         <span className="badge badge-dot" />
                     )}
                 </button>
+
+                <div className="nav-separator" />
+
+                {groups.map(g => (
+                    <button
+                        key={g.id}
+                        className={`nav-icon-btn nav-group-btn ${currentGroup?.id === g.id ? 'active' : ''}`}
+                        onClick={(e) => {
+                            if (e.shiftKey) handleDeleteGroup(e, g);
+                            else openGroup(g);
+                        }}
+                        title={`${g.name} (Shift+Click to delete)`}
+                    >
+                        {g.avatarUrl
+                            ? <img src={g.avatarUrl} alt={g.name} />
+                            : <span>{g.name.substring(0, 2).toUpperCase()}</span>}
+                    </button>
+                ))}
+
+                <button
+                    className="nav-icon-btn add-btn"
+                    onClick={() => { setShowCreateGroup(true); setSidebarOpen(false); }}
+                    title="Create group"
+                >
+                    <PlusIcon size={22} />
+                </button>
             </nav>
 
             {/* Channel/DM sidebar */}
             <aside className="channel-sidebar">
                 <div className="dm-list">
-                    {/* Groups Section */}
-                    <div className="sidebar-section-header">
-                        <span className="sidebar-section-label">GROUPS</span>
-                        <button className="add-section-btn" onClick={() => setShowCreateGroup(true)} title="Create group"><PlusIcon size={16} /></button>
-                    </div>
-                    {groups.map(g => (
-                        <div
-                            key={g.id}
-                            className={`dm-item ${currentGroup?.id === g.id ? 'active' : ''}`}
-                            onClick={(e) => {
-                                if (e.shiftKey) handleDeleteGroup(e, g);
-                                else openGroup(g);
-                            }}
-                            title="Shift+Click to delete"
-                        >
-                            <Avatar name={g.name} color="#5865f2" src={g.avatarUrl ?? undefined} size="sm" />
-                            <span className="dm-name">{g.name}</span>
-                        </div>
-                    ))}
-
-                    <div className="sidebar-section-label" style={{ marginTop: 24 }}>DIRECT MESSAGES</div>
+                    <div className="sidebar-section-label dm-section-label">DIRECT MESSAGES</div>
 
                     {friendsData.friends.length === 0 && (
                         <p style={{ padding: '0 16px', fontSize: 13, color: 'var(--text-muted)' }}>
