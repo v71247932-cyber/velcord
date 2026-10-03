@@ -1789,3 +1789,8 @@ html.desktop-app .viewer { top: 28px; }
 .viewer-stage.zoomed { overflow: auto; align-items: flex-start; justify-content: flex-start; }
 .viewer-img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; border-radius: 6px; box-shadow: 0 20px 60px rgba(0,0,0,0.6); cursor: zoom-in; user-select: none; }
 .viewer-stage.zoomed .viewer-img { max-width: none; max-height: none; cursor: zoom-out; margin: auto; }
+
+/* ---- Message box: text centred vertically with the + and send buttons (all 32px tall) ---- */
+.chat-input-wrapper { align-items: flex-end; padding: 10px 14px; }
+.chat-input { box-sizing: border-box; min-height: 32px; padding: 4px 0; line-height: 24px; margin: 0; align-self: flex-end; }
+.chat-input::placeholder { line-height: 24px; }
