@@ -1906,3 +1906,8 @@ html.desktop-app .viewer { top: 28px; }
 /* the picture in "This is the beginning of your history" is shown in full colour */
 .empty-icon:has(.avatar) { opacity: 1; }
 .avatar-unsaved { margin-top: 4px; font-size: 12px; font-weight: 600; color: #f0b232; }
+
+/* a friend's whole row opens the chat */
+.friend-item-link { cursor: pointer; }
+.friend-item-link:focus-visible { outline: 2px solid rgba(110,122,255,0.85); outline-offset: -2px; }
+.friend-item-link .friend-actions { cursor: default; }

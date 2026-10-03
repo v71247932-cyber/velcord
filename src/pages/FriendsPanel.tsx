@@ -96,13 +96,20 @@ export default function FriendsPanel({ onOpenDM }: FriendsPanelProps) {
                             <>
                                 <div className="section-header">Friends — {data.friends.length}</div>
                                 {data.friends.map(f => (
-                                    <div key={f.id} className="friend-item">
+                                    <div
+                                        key={f.id}
+                                        className="friend-item friend-item-link"
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={() => onOpenDM(f)}
+                                        onKeyDown={e => { if (e.key === 'Enter' && e.target === e.currentTarget) onOpenDM(f); }}
+                                    >
                                         <Avatar name={f.username} color={f.avatarColor} src={f.avatarUrl} size="md" zoomable status={f.online ? 'online' : 'offline'} />
                                         <div className="friend-info">
                                             <div className="friend-name">{f.username}{f.verified && <VerifiedBadge size={14} />}</div>
                                             <div className="friend-status">{f.online ? 'Online' : 'Offline'}</div>
                                         </div>
-                                        <div className="friend-actions">
+                                        <div className="friend-actions" onClick={e => e.stopPropagation()}>
                                             <button className="btn btn-secondary btn-sm" onClick={() => onOpenDM(f)}>
                                                 <MessageIcon size={15} /> Message
                                             </button>
