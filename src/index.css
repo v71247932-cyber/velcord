@@ -1875,3 +1875,4 @@ html.desktop-app .viewer { top: 28px; }
 .call-stage-pip { position: absolute; right: 10px; bottom: 10px; width: 28%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; border: 2px solid rgba(255,255,255,0.85); background: #000; transform: scaleX(-1); box-shadow: 0 4px 14px rgba(0,0,0,0.5); }
 .call-card.call-video .call-status { margin-bottom: 8px; }
 .call-card .call-buttons { flex-wrap: wrap; }
+.call-card .call-btn { white-space: nowrap; min-width: 0; padding: 0 10px; }
