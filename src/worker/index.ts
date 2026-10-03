@@ -716,7 +716,8 @@ async function handleGetGroups(request: Request, env: Env): Promise<Response> {
 
   const groups = await env.DB.prepare(`
     SELECT g.id, g.name, g.owner_id, g.created_at, ${AV('g')} as avatar_url, ${BANNER_COLS('g')},
-           (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) as memberCount
+           (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) as memberCount,
+           (SELECT COUNT(*) FROM conf_participants cp WHERE cp.group_id = g.id AND cp.last_seen > unixepoch() - ${CONF_ALIVE}) as callCount
     FROM groups g
     JOIN group_members gm ON g.id = gm.group_id
     WHERE gm.user_id = ?
@@ -732,7 +733,8 @@ async function handleGetGroups(request: Request, env: Env): Promise<Response> {
     bannerUrl: avatarPath('group-banners', g.id, g.banner_url),
     bannerColor1: g.banner_c1 ?? null,
     bannerColor2: g.banner_c2 ?? null,
-    memberCount: g.memberCount
+    memberCount: g.memberCount,
+    callCount: g.callCount || 0,
   })));
 }
 
@@ -960,6 +962,13 @@ function ensureSchema(env: Env): Promise<void> {
           created_at INTEGER NOT NULL DEFAULT (unixepoch())
         )`),
         env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_call_signals_to ON call_signals(to_id, id)'),
+        env.DB.prepare(`CREATE TABLE IF NOT EXISTS conf_participants (
+          group_id INTEGER NOT NULL,
+          user_id INTEGER NOT NULL,
+          joined_at INTEGER NOT NULL,
+          last_seen INTEGER NOT NULL,
+          PRIMARY KEY (group_id, user_id)
+        )`),
         env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_dm_receiver ON direct_messages(receiver_id, id)'),
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS typing (
           k TEXT PRIMARY KEY,
@@ -975,6 +984,8 @@ function ensureSchema(env: Env): Promise<void> {
       for (const col of ['url TEXT', 'origin TEXT']) {
         try { await env.DB.prepare(`ALTER TABLE gifs ADD COLUMN ${col}`).run(); } catch { /* already there */ }
       }
+      // Older databases: signals gained the group id of a conference call
+      try { await env.DB.prepare('ALTER TABLE call_signals ADD COLUMN conf INTEGER').run(); } catch { /* already exists */ }
     })().catch(e => { schemaReady = null; throw e; });
   }
   return schemaReady;
@@ -1240,12 +1251,79 @@ async function handleMessageStatus(request: Request, env: Env, otherUserId: numb
 // --- Call signaling (WebRTC offers/answers/ICE relayed through D1) ---
 const SIGNAL_TYPES = ['invite', 'accept', 'reject', 'hangup', 'desc', 'ice', 'share', 'cam'];
 
+// --- Conference (group) calls ---
+// Everyone in the call is connected to everyone else directly (up to CONF_MAX people). The server only keeps the
+// list of who is in, rings the group when a call starts, and passes the connection messages along.
+const CONF_MAX = 6;
+const CONF_ALIVE = 20; // seconds: a person whose app stopped reporting is no longer counted as in the call
+const CONF_SIGNAL_TYPES = ['conf-desc', 'conf-ice', 'conf-cam', 'conf-share', 'conf-mute'];
+
+async function isGroupMember(env: Env, groupId: number, userId: number): Promise<boolean> {
+  return !!(await env.DB.prepare('SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?').bind(groupId, userId).first());
+}
+
+async function confRoster(env: Env, groupId: number) {
+  const rows = await env.DB.prepare(`
+    SELECT u.id, u.username, u.avatar_color, ${AV('u')} as avatar_url
+    FROM conf_participants cp JOIN users u ON u.id = cp.user_id
+    WHERE cp.group_id = ? AND cp.last_seen > unixepoch() - ${CONF_ALIVE}
+    ORDER BY cp.joined_at, u.id
+  `).bind(groupId).all();
+  return rows.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: avatarPath('avatars', r.id, r.avatar_url), verified: isVerified(r.username) }));
+}
+
+async function handleConfJoin(request: Request, env: Env, groupId: number): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  if (!(await isGroupMember(env, groupId, auth.userId))) return err('Not a member of this group', 403);
+  const { video } = await request.json().catch(() => ({})) as { video?: boolean };
+
+  await env.DB.prepare(`DELETE FROM conf_participants WHERE group_id = ? AND last_seen <= unixepoch() - ${CONF_ALIVE}`).bind(groupId).run();
+  const others = await env.DB.prepare('SELECT COUNT(*) as c FROM conf_participants WHERE group_id = ? AND user_id != ?').bind(groupId, auth.userId).first() as { c: number };
+  const already = await env.DB.prepare('SELECT 1 FROM conf_participants WHERE group_id = ? AND user_id = ?').bind(groupId, auth.userId).first();
+  if (!already && others.c >= CONF_MAX) return err(`This call is full (${CONF_MAX} people).`, 409);
+  await env.DB.prepare('INSERT OR REPLACE INTO conf_participants (group_id, user_id, joined_at, last_seen) VALUES (?, ?, unixepoch(), unixepoch())').bind(groupId, auth.userId).run();
+
+  let started = false;
+  if (others.c === 0) { // nobody else is in: this starts a call, so ring the rest of the group
+    started = true;
+    const group = await env.DB.prepare('SELECT name FROM groups WHERE id = ?').bind(groupId).first() as { name: string } | null;
+    const members = await env.DB.prepare('SELECT user_id FROM group_members WHERE group_id = ? AND user_id != ?').bind(groupId, auth.userId).all();
+    const payload = JSON.stringify({ groupName: group?.name ?? 'Group', video: !!video });
+    for (const m of members.results as { user_id: number }[]) {
+      await env.DB.prepare('INSERT INTO call_signals (from_id, to_id, type, payload, conf) VALUES (?, ?, ?, ?, ?)').bind(auth.userId, m.user_id, 'conf-invite', payload, groupId).run();
+    }
+  }
+  return json({ started, max: CONF_MAX, roster: await confRoster(env, groupId) });
+}
+
+async function handleConfLeave(request: Request, env: Env, groupId: number): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  await env.DB.prepare('DELETE FROM conf_participants WHERE group_id = ? AND user_id = ?').bind(groupId, auth.userId).run();
+  return json({ success: true });
+}
+
+async function handleConfInfo(request: Request, env: Env, groupId: number): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  if (!(await isGroupMember(env, groupId, auth.userId))) return err('Not a member of this group', 403);
+  return json({ max: CONF_MAX, roster: await confRoster(env, groupId) });
+}
+
 async function handleCallSignal(request: Request, env: Env): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
-  const { to, type, payload } = await request.json() as { to: number; type: string; payload?: string };
-  if (!Number.isInteger(to) || !SIGNAL_TYPES.includes(type)) return err('Invalid signal');
+  const { to, type, payload, conf } = await request.json() as { to: number; type: string; payload?: string; conf?: number };
+  if (!Number.isInteger(to)) return err('Invalid signal');
   if (payload !== undefined && (typeof payload !== 'string' || payload.length > 30000)) return err('Payload too large');
+  if (CONF_SIGNAL_TYPES.includes(type)) {
+    if (!Number.isInteger(conf)) return err('Invalid signal');
+    if (!(await isGroupMember(env, conf as number, auth.userId)) || !(await isGroupMember(env, conf as number, to))) return err('Not in this group', 403);
+    await env.DB.prepare('INSERT INTO call_signals (from_id, to_id, type, payload, conf) VALUES (?, ?, ?, ?, ?)').bind(auth.userId, to, type, payload ?? null, conf).run();
+    return json({ success: true }, 201);
+  }
+  if (!SIGNAL_TYPES.includes(type)) return err('Invalid signal');
   const friendship = await env.DB.prepare(
     "SELECT id FROM friendships WHERE status = 'accepted' AND ((requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?))"
   ).bind(auth.userId, to, to, auth.userId).first();
@@ -1266,8 +1344,15 @@ async function handleCallPoll(request: Request, env: Env): Promise<Response> {
     return json({ now, lastId: last.m, signals: [] });
   }
   const after = parseInt(url.searchParams.get('after') || '0') || 0;
+  // A conference member polls with ?conf=<group>: that also tells the server they are still in the call
+  let roster: unknown = undefined;
+  const confId = parseInt(url.searchParams.get('conf') || '');
+  if (Number.isInteger(confId)) {
+    const res = await env.DB.prepare(`UPDATE conf_participants SET last_seen = unixepoch() WHERE group_id = ? AND user_id = ?`).bind(confId, auth.userId).run() as any;
+    if (res?.meta?.changes) roster = await confRoster(env, confId);
+  }
   const rows = await env.DB.prepare(`
-    SELECT s.id, s.from_id, s.type, s.payload, s.created_at,
+    SELECT s.id, s.from_id, s.type, s.payload, s.created_at, s.conf,
            u.username, u.avatar_color, ${AV('u')} as avatar_url
     FROM call_signals s JOIN users u ON u.id = s.from_id
     WHERE s.to_id = ? AND s.id > ?
@@ -1278,8 +1363,10 @@ async function handleCallPoll(request: Request, env: Env): Promise<Response> {
   }
   return json({
     now,
+    roster,
     signals: rows.results.map((r: any) => ({
       id: r.id,
+      conf: r.conf ?? null,
       from: { id: r.from_id, username: r.username, avatarColor: r.avatar_color, avatarUrl: avatarPath('avatars', r.from_id, r.avatar_url) },
       type: r.type,
       payload: r.payload,
@@ -1354,6 +1441,13 @@ export default {
       if (videoGetMatch && (request.method === 'GET' || request.method === 'HEAD')) return handleGetVideo(request, env, videoGetMatch[1]);
 
       // Calls
+      const confMatch = path.match(/^\/api\/conferences\/(\d+)(?:\/(join|leave))?$/);
+      if (confMatch) {
+        const gid = parseInt(confMatch[1]);
+        if (confMatch[2] === 'join' && request.method === 'POST') return handleConfJoin(request, env, gid);
+        if (confMatch[2] === 'leave' && request.method === 'POST') return handleConfLeave(request, env, gid);
+        if (!confMatch[2] && request.method === 'GET') return handleConfInfo(request, env, gid);
+      }
       if (path === '/api/calls/signal' && request.method === 'POST') return handleCallSignal(request, env);
       if (path === '/api/calls/poll' && request.method === 'GET') return handleCallPoll(request, env);
 
