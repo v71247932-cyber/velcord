@@ -125,7 +125,7 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
                             </span>
                             <span className="msg-time">{formatTime(msg.createdAt)}</span>
                         </div>
-                        <MessageContent content={msg.content} />
+                        <MessageContent content={msg.content} sender={msg.sender} createdAt={msg.createdAt} />
                     </div>
                 </div>
             </div>

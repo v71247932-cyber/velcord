@@ -130,7 +130,7 @@ export default function ChatPanel({ friend }: ChatPanelProps) {
                             <span className="msg-time">{formatTime(msg.createdAt)}</span>
                             {isMe && <Ticks msg={msg} />}
                         </div>
-                        <MessageContent content={msg.content} />
+                        <MessageContent content={msg.content} sender={msg.sender} createdAt={msg.createdAt} />
                     </div>
                 </div>
             </div>
