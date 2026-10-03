@@ -1905,3 +1905,4 @@ html.desktop-app .viewer { top: 28px; }
 
 /* the picture in "This is the beginning of your history" is shown in full colour */
 .empty-icon:has(.avatar) { opacity: 1; }
+.avatar-unsaved { margin-top: 4px; font-size: 12px; font-weight: 600; color: #f0b232; }

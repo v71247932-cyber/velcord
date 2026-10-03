@@ -46,6 +46,11 @@ export default function MainLayout() {
     const [bannerC2, setBannerC2] = useState(user?.bannerColor2 || '#eb459e');
     const [previewColors, setPreviewColors] = useState(false);
     const [cropFile, setCropFile] = useState<File | null>(null);
+    // A new profile picture is only a draft until "Save Changes": undefined = unchanged, null = remove it
+    const [draftAvatar, setDraftAvatar] = useState<string | null | undefined>(undefined);
+    useEffect(() => {
+        if (!showProfileMenu) { setDraftAvatar(undefined); setEditUsername(user?.username || ''); }
+    }, [showProfileMenu]); // eslint-disable-line react-hooks/exhaustive-deps
     const [showInfo, setShowInfo] = useState(false); // phone: profile / members panel
 
     // Notify about new direct messages (and show the unread total on the dock/taskbar icon)
@@ -129,8 +134,10 @@ export default function MainLayout() {
         e.preventDefault();
         setUpdatingProfile(true);
         try {
-            const updated = await api.updateProfile(editUsername);
+            const nameChanged = editUsername.trim() !== user?.username;
+            const updated = await api.updateProfile(nameChanged ? editUsername.trim() : undefined, draftAvatar);
             updateUser(updated);
+            setDraftAvatar(undefined);
             setShowProfileMenu(false);
         } catch (err: any) {
             alert(err.message);
@@ -182,9 +189,7 @@ export default function MainLayout() {
 
         setUpdatingProfile(true);
         try {
-            const dataUrl = await resizeAvatar(file);
-            const updated = await api.updateProfile(undefined, dataUrl);
-            updateUser(updated);
+            setDraftAvatar(await resizeAvatar(file)); // shown in the window only; saved with "Save Changes"
         } catch (err: any) {
             alert(err.message);
         } finally {
@@ -231,17 +236,8 @@ export default function MainLayout() {
         }
     }
 
-    async function handleRemoveAvatar() {
-        if (!confirm('Are you sure you want to remove your profile picture?')) return;
-        setUpdatingProfile(true);
-        try {
-            const updated = await api.updateProfile(undefined, null);
-            updateUser(updated);
-        } catch (err: any) {
-            alert(err.message);
-        } finally {
-            setUpdatingProfile(false);
-        }
+    function handleRemoveAvatar() {
+        setDraftAvatar(null); // removed when "Save Changes" is pressed
     }
 
     openDMRef.current = openDM;
@@ -506,13 +502,14 @@ export default function MainLayout() {
                         <div className="profile-edit-body">
                             <div className="profile-avatar-row">
                                 <label className="avatar-preview-container">
-                                    <Avatar name={user!.username} color={user!.avatarColor} src={user!.avatarUrl} size="lg" />
+                                    <Avatar name={user!.username} color={user!.avatarColor} src={draftAvatar === undefined ? user!.avatarUrl : (draftAvatar ?? undefined)} size="lg" />
                                     <span className="avatar-upload-overlay">Change</span>
                                     <input type="file" accept="image/*" onChange={handleAvatarUpload} hidden disabled={updatingProfile} />
                                 </label>
                                 <div className="profile-identity">
                                     <div className="profile-name">{user!.username}</div>
                                     <div className="avatar-hint">JPG, PNG, GIF or WebP, up to 10 MB</div>
+                                    {draftAvatar !== undefined && <div className="avatar-unsaved">Not saved yet. Press Save Changes.</div>}
                                 </div>
                             </div>
                             <div className="avatar-buttons">
@@ -520,7 +517,7 @@ export default function MainLayout() {
                                     {updatingProfile ? 'Uploading...' : 'Upload picture'}
                                     <input type="file" accept="image/*" onChange={handleAvatarUpload} hidden disabled={updatingProfile} />
                                 </label>
-                                {user?.avatarUrl && (
+                                {(draftAvatar === undefined ? !!user?.avatarUrl : !!draftAvatar) && (
                                     <button type="button" className="avatar-btn avatar-btn-secondary" onClick={handleRemoveAvatar} disabled={updatingProfile}>
                                         Remove
                                     </button>
@@ -583,7 +580,7 @@ export default function MainLayout() {
                                     <button
                                         type="submit"
                                         className="btn-primary"
-                                        disabled={updatingProfile || !editUsername.trim() || editUsername === user?.username}
+                                        disabled={updatingProfile || !editUsername.trim() || (editUsername.trim() === user?.username && draftAvatar === undefined)}
                                     >
                                         {updatingProfile ? 'Saving...' : 'Save Changes'}
                                     </button>
