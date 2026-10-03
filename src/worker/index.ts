@@ -178,6 +178,10 @@ async function handleGetFriends(request: Request, env: Env): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
 
+  // The app polls this endpoint while open, so anything addressed to this user counts as delivered
+  await env.DB.prepare('UPDATE direct_messages SET delivered_at = unixepoch() WHERE receiver_id = ? AND delivered_at IS NULL')
+    .bind(auth.userId).run();
+
   // Accepted friends
   const friends = await env.DB.prepare(`
     SELECT u.id, u.username, u.avatar_color, u.avatar_url, f.id as friendship_id,
@@ -277,8 +281,19 @@ async function handleGetMessages(request: Request, env: Env, otherUserId: number
   const url = new URL(request.url);
   const since = url.searchParams.get('since') || '0';
 
+  // Fetching = delivered; fetching while the chat is visible (seen=1) = seen
+  if (url.searchParams.get('seen') === '1') {
+    await env.DB.prepare(
+      'UPDATE direct_messages SET read_at = unixepoch(), delivered_at = COALESCE(delivered_at, unixepoch()) WHERE receiver_id = ? AND sender_id = ? AND read_at IS NULL'
+    ).bind(auth.userId, otherUserId).run();
+  } else {
+    await env.DB.prepare(
+      'UPDATE direct_messages SET delivered_at = unixepoch() WHERE receiver_id = ? AND sender_id = ? AND delivered_at IS NULL'
+    ).bind(auth.userId, otherUserId).run();
+  }
+
   const messages = await env.DB.prepare(`
-    SELECT dm.id, dm.content, dm.created_at,
+    SELECT dm.id, dm.content, dm.created_at, dm.delivered_at, dm.read_at,
            u.id as sender_id, u.username as sender_username, u.avatar_color as sender_avatar_color, u.avatar_url as sender_avatar_url
     FROM direct_messages dm
     JOIN users u ON u.id = dm.sender_id
@@ -292,6 +307,8 @@ async function handleGetMessages(request: Request, env: Env, otherUserId: number
     id: m.id,
     content: m.content,
     createdAt: m.created_at,
+    deliveredAt: m.delivered_at,
+    readAt: m.read_at,
     sender: { id: m.sender_id, username: m.sender_username, avatarColor: m.sender_avatar_color, avatarUrl: m.sender_avatar_url }
   })));
 }
@@ -456,6 +473,153 @@ async function handleSendGroupMessage(request: Request, env: Env, groupId: numbe
   return json({ id: result.id, content: content.trim(), createdAt: result.created_at, senderId: auth.userId }, 201);
 }
 
+// --- Runtime schema migration (D1 is only reachable from the worker) ---
+let schemaReady: Promise<void> | null = null;
+function ensureSchema(env: Env): Promise<void> {
+  if (!schemaReady) {
+    schemaReady = (async () => {
+      for (const col of ['delivered_at', 'read_at']) {
+        try { await env.DB.prepare(`ALTER TABLE direct_messages ADD COLUMN ${col} INTEGER`).run(); } catch { /* already exists */ }
+      }
+      await env.DB.batch([
+        env.DB.prepare(`CREATE TABLE IF NOT EXISTS uploads (
+          id TEXT PRIMARY KEY,
+          owner_id INTEGER NOT NULL,
+          mime TEXT NOT NULL,
+          data TEXT NOT NULL,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          expires_at INTEGER NOT NULL
+        )`),
+        env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_uploads_expires ON uploads(expires_at)'),
+        env.DB.prepare(`CREATE TABLE IF NOT EXISTS call_signals (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          from_id INTEGER NOT NULL,
+          to_id INTEGER NOT NULL,
+          type TEXT NOT NULL,
+          payload TEXT,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch())
+        )`),
+        env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_call_signals_to ON call_signals(to_id, id)'),
+      ]);
+    })().catch(e => { schemaReady = null; throw e; });
+  }
+  return schemaReady;
+}
+
+// --- Image uploads (kept 2 days, then deleted) ---
+const UPLOAD_TTL = 2 * 24 * 60 * 60;
+const UPLOAD_MAX_BYTES = 1_300_000;
+const UPLOAD_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+
+async function purgeExpiredUploads(env: Env) {
+  await env.DB.prepare('DELETE FROM uploads WHERE expires_at <= unixepoch()').run();
+}
+
+async function handleUpload(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const mime = (request.headers.get('Content-Type') || '').split(';')[0].trim();
+  if (!UPLOAD_MIMES.includes(mime)) return err('Unsupported image type');
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (bytes.length === 0) return err('Empty file');
+  if (bytes.length > UPLOAD_MAX_BYTES) return err('Image too large after processing');
+
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  const id = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b => b.toString(16).padStart(2, '0')).join('');
+  const expiresAt = Math.floor(Date.now() / 1000) + UPLOAD_TTL;
+  await env.DB.prepare('INSERT INTO uploads (id, owner_id, mime, data, expires_at) VALUES (?, ?, ?, ?, ?)')
+    .bind(id, auth.userId, mime, btoa(bin), expiresAt).run();
+  await purgeExpiredUploads(env);
+  return json({ id, expiresAt }, 201);
+}
+
+async function handleGetUpload(env: Env, id: string): Promise<Response> {
+  if (!/^[a-f0-9]{32}$/.test(id)) return err('Not found', 404);
+  const row = await env.DB.prepare('SELECT mime, data, expires_at FROM uploads WHERE id = ?')
+    .bind(id).first() as { mime: string; data: string; expires_at: number } | null;
+  const now = Math.floor(Date.now() / 1000);
+  if (!row || row.expires_at <= now) {
+    if (row) await purgeExpiredUploads(env);
+    return err('Image expired', 404);
+  }
+  const bin = atob(row.data);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return new Response(out, {
+    headers: {
+      'Content-Type': row.mime,
+      'Cache-Control': `private, max-age=${Math.min(row.expires_at - now, 86400)}`,
+      'X-Content-Type-Options': 'nosniff',
+      ...CORS,
+    },
+  });
+}
+
+// --- Message status (sent / delivered / seen ticks) ---
+async function handleMessageStatus(request: Request, env: Env, otherUserId: number): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const rows = await env.DB.prepare(`
+    SELECT id, delivered_at, read_at FROM direct_messages
+    WHERE sender_id = ? AND receiver_id = ?
+    ORDER BY id DESC LIMIT 100
+  `).bind(auth.userId, otherUserId).all();
+  return json(rows.results.map((r: any) => ({ id: r.id, deliveredAt: r.delivered_at, readAt: r.read_at })));
+}
+
+// --- Call signaling (WebRTC offers/answers/ICE relayed through D1) ---
+const SIGNAL_TYPES = ['invite', 'accept', 'reject', 'hangup', 'desc', 'ice'];
+
+async function handleCallSignal(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const { to, type, payload } = await request.json() as { to: number; type: string; payload?: string };
+  if (!Number.isInteger(to) || !SIGNAL_TYPES.includes(type)) return err('Invalid signal');
+  if (payload !== undefined && (typeof payload !== 'string' || payload.length > 30000)) return err('Payload too large');
+  const friendship = await env.DB.prepare(
+    "SELECT id FROM friendships WHERE status = 'accepted' AND ((requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?))"
+  ).bind(auth.userId, to, to, auth.userId).first();
+  if (!friendship) return err('You can only call friends', 403);
+  await env.DB.prepare('INSERT INTO call_signals (from_id, to_id, type, payload) VALUES (?, ?, ?, ?)')
+    .bind(auth.userId, to, type, payload ?? null).run();
+  return json({ success: true }, 201);
+}
+
+async function handleCallPoll(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const url = new URL(request.url);
+  const now = Math.floor(Date.now() / 1000);
+  if (url.searchParams.get('init') === '1') {
+    const last = await env.DB.prepare('SELECT COALESCE(MAX(id), 0) as m FROM call_signals').first() as { m: number };
+    return json({ now, lastId: last.m, signals: [] });
+  }
+  const after = parseInt(url.searchParams.get('after') || '0') || 0;
+  const rows = await env.DB.prepare(`
+    SELECT s.id, s.from_id, s.type, s.payload, s.created_at,
+           u.username, u.avatar_color, u.avatar_url
+    FROM call_signals s JOIN users u ON u.id = s.from_id
+    WHERE s.to_id = ? AND s.id > ?
+    ORDER BY s.id ASC LIMIT 100
+  `).bind(auth.userId, after).all();
+  if (Math.random() < 0.05) {
+    await env.DB.prepare('DELETE FROM call_signals WHERE created_at < unixepoch() - 300').run();
+  }
+  return json({
+    now,
+    signals: rows.results.map((r: any) => ({
+      id: r.id,
+      from: { id: r.from_id, username: r.username, avatarColor: r.avatar_color, avatarUrl: r.avatar_url },
+      type: r.type,
+      payload: r.payload,
+      createdAt: r.created_at,
+    })),
+  });
+}
+
 // --- Main fetch handler ---
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -471,6 +635,21 @@ export default {
       if (!path.startsWith('/api/')) {
         return env.ASSETS.fetch(request);
       }
+
+      await ensureSchema(env);
+
+      // Uploads
+      if (path === '/api/uploads' && request.method === 'POST') return handleUpload(request, env);
+      const uploadMatch = path.match(/^\/api\/uploads\/([a-f0-9]+)$/);
+      if (uploadMatch && request.method === 'GET') return handleGetUpload(env, uploadMatch[1]);
+
+      // Calls
+      if (path === '/api/calls/signal' && request.method === 'POST') return handleCallSignal(request, env);
+      if (path === '/api/calls/poll' && request.method === 'GET') return handleCallPoll(request, env);
+
+      // Message delivery status
+      const statusMatch = path.match(/^\/api\/messages\/(\d+)\/status$/);
+      if (statusMatch && request.method === 'GET') return handleMessageStatus(request, env, parseInt(statusMatch[1]));
 
       // Auth routes
       if (path === '/api/auth/register' && request.method === 'POST') return handleRegister(request, env);

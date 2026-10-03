@@ -3,6 +3,8 @@ import { api } from '../api';
 import type { Message, Group } from '../api';
 import { useAuth } from '../AuthContext';
 import Avatar from '../components/Avatar';
+import { MessageContent } from '../components/MessageContent';
+import { uploadAsMessage } from '../uploads';
 
 interface GroupChatPanelProps {
     group: Group;
@@ -26,6 +28,8 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
     const lastTimestamp = useRef<number>(0);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const initialized = useRef(false);
+    const fileRef = useRef<HTMLInputElement>(null);
+    const [uploading, setUploading] = useState(false);
 
     const loadMessages = useCallback(async (initial = false) => {
         try {
@@ -68,6 +72,29 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
         finally {
             setSending(false);
             textareaRef.current?.focus();
+        }
+    }
+
+    async function sendImage(file: File) {
+        if (uploading) return;
+        setUploading(true);
+        try {
+            const content = await uploadAsMessage(file);
+            const msg = await api.sendGroupMessage(group.id, content);
+            setMessages(prev => [...prev, { ...msg, sender: user! }]);
+            lastTimestamp.current = Math.max(lastTimestamp.current, msg.createdAt);
+        } catch (err: any) {
+            alert(err.message);
+        } finally {
+            setUploading(false);
+        }
+    }
+
+    function handlePaste(e: React.ClipboardEvent) {
+        const file = Array.from(e.clipboardData.files).find(f => f.type.startsWith('image/'));
+        if (file) {
+            e.preventDefault();
+            sendImage(file);
         }
     }
 
@@ -127,7 +154,7 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
                             </span>
                             <span className="msg-time">{formatTime(msg.createdAt)}</span>
                         </div>
-                        <div className="msg-text">{msg.content}</div>
+                        <MessageContent content={msg.content} />
                     </div>
                 </div>
             </div>
@@ -153,12 +180,33 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
 
             <div className="chat-input-area">
                 <div className="chat-input-wrapper">
+                    <input
+                        ref={fileRef}
+                        type="file"
+                        accept="image/*"
+                        hidden
+                        onChange={e => {
+                            const f = e.target.files?.[0];
+                            e.target.value = '';
+                            if (f) sendImage(f);
+                        }}
+                    />
+                    <button
+                        className="attach-btn"
+                        onClick={() => fileRef.current?.click()}
+                        disabled={uploading}
+                        title="Send an image (kept for 2 days)"
+                        type="button"
+                    >
+                        {uploading ? '…' : '+'}
+                    </button>
                     <textarea
                         ref={textareaRef}
                         className="chat-input"
                         value={input}
                         onChange={handleInput}
                         onKeyDown={handleKeyDown}
+                        onPaste={handlePaste}
                         placeholder={`Message #${group.name}`}
                         rows={1}
                         autoFocus

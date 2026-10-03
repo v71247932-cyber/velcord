@@ -36,8 +36,8 @@ export const api = {
     rejectFriend: (friendshipId: number) =>
         request<{ success: boolean }>('POST', '/api/friends/reject', { friendshipId }),
 
-    getMessages: (userId: number, since?: number) =>
-        request<Message[]>('GET', `/api/messages/${userId}${since ? `?since=${since}` : ''}`),
+    getMessages: (userId: number, since?: number, seen = false) =>
+        request<Message[]>('GET', `/api/messages/${userId}?since=${since || 0}${seen ? '&seen=1' : ''}`),
 
     sendMessage: (userId: number, content: string) =>
         request<Message>('POST', `/api/messages/${userId}`, { content }),
@@ -61,6 +61,27 @@ export const api = {
 
     deleteGroup: (groupId: number) =>
         request<{ success: boolean }>('DELETE', `/api/groups/${groupId}`),
+
+    getMessageStatus: (userId: number) =>
+        request<{ id: number; deliveredAt: number | null; readAt: number | null }[]>('GET', `/api/messages/${userId}/status`),
+
+    uploadImage: async (blob: Blob) => {
+        const token = localStorage.getItem('velcord_token');
+        const res = await fetch(`${BASE}/api/uploads`, {
+            method: 'POST',
+            headers: { 'Content-Type': blob.type, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+            body: blob,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error((data as any).error || 'Upload failed');
+        return data as { id: string; expiresAt: number };
+    },
+
+    callSignal: (to: number, type: string, payload?: unknown) =>
+        request<{ success: boolean }>('POST', '/api/calls/signal', { to, type, payload: payload === undefined ? undefined : JSON.stringify(payload) }),
+
+    callPoll: (after: number) =>
+        request<{ now: number; lastId?: number; signals: CallSignal[] }>('GET', after < 0 ? '/api/calls/poll?init=1' : `/api/calls/poll?after=${after}`),
 
     updateProfile: (username?: string, avatarUrl?: string | null) =>
         request<User>('PATCH', '/api/me', { username, avatarUrl }),
@@ -91,7 +112,17 @@ export interface Message {
     id: number;
     content: string;
     createdAt: number;
+    deliveredAt?: number | null;
+    readAt?: number | null;
     sender: User;
+}
+
+export interface CallSignal {
+    id: number;
+    from: User;
+    type: 'invite' | 'accept' | 'reject' | 'hangup' | 'desc' | 'ice';
+    payload: string | null;
+    createdAt: number;
 }
 
 export interface Group {

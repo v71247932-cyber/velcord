@@ -6,6 +6,7 @@ import Avatar from '../components/Avatar';
 import FriendsPanel from './FriendsPanel';
 import ChatPanel from './ChatPanel';
 import GroupChatPanel from './GroupChatPanel';
+import { useCall } from '../CallContext';
 import CreateGroupModal from '../components/CreateGroupModal';
 
 type View =
@@ -15,6 +16,7 @@ type View =
 
 export default function MainLayout() {
     const { user, logout, updateUser } = useAuth();
+    const { phase: callPhase, startCall } = useCall();
     const [view, setView] = useState<View>({ type: 'friends' });
     const [groups, setGroups] = useState<Group[]>([]);
     const [friendsData, setFriendsData] = useState<FriendsData>({ friends: [], pendingSent: [], pendingReceived: [] });
@@ -302,6 +304,16 @@ export default function MainLayout() {
                         <div className="content-header">
                             <Avatar name={currentFriend.username} color={currentFriend.avatarColor} src={currentFriend.avatarUrl} size="sm" />
                             <span>{currentFriend.username}</span>
+                            {friendsData.friends.some(f => f.id === currentFriend.id) && (
+                                <button
+                                    className="header-call-btn"
+                                    onClick={() => startCall(currentFriend)}
+                                    disabled={callPhase !== 'idle'}
+                                    title="Start a voice call"
+                                >
+                                    📞 Call
+                                </button>
+                            )}
                         </div>
                         <ChatPanel key={currentFriend.id} friend={currentFriend} />
                     </>

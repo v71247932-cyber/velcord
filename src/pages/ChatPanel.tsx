@@ -3,6 +3,8 @@ import { api } from '../api';
 import type { Message, FriendUser } from '../api';
 import { useAuth } from '../AuthContext';
 import Avatar from '../components/Avatar';
+import { MessageContent, Ticks } from '../components/MessageContent';
+import { uploadAsMessage } from '../uploads';
 
 interface ChatPanelProps {
     friend: FriendUser;
@@ -26,19 +28,40 @@ export default function ChatPanel({ friend }: ChatPanelProps) {
     const lastTimestamp = useRef<number>(0);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const initialized = useRef(false);
+    const fileRef = useRef<HTMLInputElement>(null);
+    const [uploading, setUploading] = useState(false);
 
     const loadMessages = useCallback(async (initial = false) => {
         try {
             const since = initial ? 0 : lastTimestamp.current;
-            const newMsgs = await api.getMessages(friend.id, since);
+            // Tell the server the chat is being looked at, so the sender gets blue ticks
+            const seen = document.visibilityState === 'visible' && document.hasFocus();
+            const newMsgs = await api.getMessages(friend.id, since, seen);
             if (newMsgs.length > 0) {
                 if (initial) {
                     setMessages(newMsgs);
                 } else {
-                    setMessages(prev => [...prev, ...newMsgs]);
+                    setMessages(prev => {
+                        const known = new Set(prev.map(m => m.id));
+                        return [...prev, ...newMsgs.filter(m => !known.has(m.id))];
+                    });
                 }
                 lastTimestamp.current = Math.max(...newMsgs.map(m => m.createdAt));
             }
+            // Refresh ticks on my own messages
+            const statuses = await api.getMessageStatus(friend.id);
+            const byId = new Map(statuses.map(s => [s.id, s]));
+            setMessages(prev => {
+                let changed = false;
+                const next = prev.map(m => {
+                    const st = byId.get(m.id);
+                    if (!st || m.sender.id === friend.id) return m;
+                    if ((st.deliveredAt ?? null) === (m.deliveredAt ?? null) && (st.readAt ?? null) === (m.readAt ?? null)) return m;
+                    changed = true;
+                    return { ...m, deliveredAt: st.deliveredAt, readAt: st.readAt };
+                });
+                return changed ? next : prev;
+            });
         } catch { /* noop */ }
     }, [friend.id]);
 
@@ -70,6 +93,29 @@ export default function ChatPanel({ friend }: ChatPanelProps) {
         finally {
             setSending(false);
             textareaRef.current?.focus();
+        }
+    }
+
+    async function sendImage(file: File) {
+        if (uploading) return;
+        setUploading(true);
+        try {
+            const content = await uploadAsMessage(file);
+            const msg = await api.sendMessage(friend.id, content);
+            setMessages(prev => [...prev, { ...msg, sender: user! }]);
+            lastTimestamp.current = Math.max(lastTimestamp.current, msg.createdAt);
+        } catch (err: any) {
+            alert(err.message);
+        } finally {
+            setUploading(false);
+        }
+    }
+
+    function handlePaste(e: React.ClipboardEvent) {
+        const file = Array.from(e.clipboardData.files).find(f => f.type.startsWith('image/'));
+        if (file) {
+            e.preventDefault();
+            sendImage(file);
         }
     }
 
@@ -129,8 +175,9 @@ export default function ChatPanel({ friend }: ChatPanelProps) {
                                 {msg.sender.username}
                             </span>
                             <span className="msg-time">{formatTime(msg.createdAt)}</span>
+                            {isMe && <Ticks msg={msg} />}
                         </div>
-                        <div className="msg-text">{msg.content}</div>
+                        <MessageContent content={msg.content} />
                     </div>
                 </div>
             </div>
@@ -156,12 +203,33 @@ export default function ChatPanel({ friend }: ChatPanelProps) {
 
             <div className="chat-input-area">
                 <div className="chat-input-wrapper">
+                    <input
+                        ref={fileRef}
+                        type="file"
+                        accept="image/*"
+                        hidden
+                        onChange={e => {
+                            const f = e.target.files?.[0];
+                            e.target.value = '';
+                            if (f) sendImage(f);
+                        }}
+                    />
+                    <button
+                        className="attach-btn"
+                        onClick={() => fileRef.current?.click()}
+                        disabled={uploading}
+                        title="Send an image (kept for 2 days)"
+                        type="button"
+                    >
+                        {uploading ? '…' : '+'}
+                    </button>
                     <textarea
                         ref={textareaRef}
                         className="chat-input"
                         value={input}
                         onChange={handleInput}
                         onKeyDown={handleKeyDown}
+                        onPaste={handlePaste}
                         placeholder={`Message @${friend.username}`}
                         rows={1}
                         autoFocus
