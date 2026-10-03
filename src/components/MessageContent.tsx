@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { IMAGE_TOKEN } from '../uploads';
+import { IMAGE_TOKEN, VIDEO_TOKEN } from '../uploads';
 import type { Message } from '../api';
 import { ImageIcon } from './Icons';
 
@@ -7,6 +7,22 @@ const BASE = import.meta.env.VITE_API_URL || '';
 
 export function MessageContent({ content }: { content: string }) {
     const [failed, setFailed] = useState(false);
+    const v = VIDEO_TOKEN.exec(content);
+    if (v) {
+        const vsrc = `${BASE}/api/videos/${v[1]}`;
+        if (failed) {
+            return (
+                <div className="msg-expired">
+                    <ImageIcon size={15} /> Video unavailable. Clips are deleted after 1 day, and some formats cannot play here.
+                    {' '}<a href={vsrc} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>Try opening it</a>
+                </div>
+            );
+        }
+        return (
+            <video className="msg-video" src={vsrc} controls preload="metadata" playsInline
+                onClick={e => e.stopPropagation()} onError={() => setFailed(true)} />
+        );
+    }
     const m = IMAGE_TOKEN.exec(content);
     if (!m) return <div className="msg-text">{content}</div>;
     const src = `${BASE}/api/uploads/${m[1]}`;

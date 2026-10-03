@@ -68,3 +68,68 @@ export async function squareImageDataUrl(file: File, size = 256): Promise<string
     ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size);
     return canvas.toDataURL('image/jpeg', 0.88);
 }
+
+
+// ------------------------------------------------------------------ video clips
+export const VIDEO_MAX_BYTES = 200 * 1024 * 1024;
+export const VIDEO_TOKEN = /^\[vid:([a-f0-9]{32})\]$/;
+const VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-m4v', 'video/ogg'];
+
+function videoMime(file: File): string {
+    if (VIDEO_TYPES.includes(file.type)) return file.type;
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (ext === 'mp4') return 'video/mp4';
+    if (ext === 'm4v') return 'video/x-m4v';
+    if (ext === 'mov') return 'video/quicktime';
+    if (ext === 'webm') return 'video/webm';
+    if (ext === 'ogv' || ext === 'ogg') return 'video/ogg';
+    return '';
+}
+
+export const isVideoFile = (file: File) => file.type.startsWith('video/') || videoMime(file) !== '';
+
+function putChunk(id: string, n: number, blob: Blob, onBytes: (loaded: number) => void, signal: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', `${import.meta.env.VITE_API_URL || ''}/api/videos/${id}/chunks/${n}`);
+        const token = localStorage.getItem('velcord_token');
+        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+        xhr.upload.onprogress = e => onBytes(e.loaded);
+        xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) { resolve(); return; }
+            let msg = 'Upload failed';
+            try { msg = JSON.parse(xhr.responseText).error || msg; } catch { /* keep default */ }
+            reject(Object.assign(new Error(msg), { permanent: xhr.status >= 400 && xhr.status < 500 }));
+        };
+        xhr.onerror = () => reject(new Error('Network error during upload'));
+        xhr.onabort = () => reject(Object.assign(new Error('Upload cancelled'), { permanent: true }));
+        signal.addEventListener('abort', () => xhr.abort(), { once: true });
+        xhr.send(blob);
+    });
+}
+
+/** Uploads a clip (max 200 MB) in 5 MB pieces and returns the message content that references it. */
+export async function uploadVideoAsMessage(file: File, onProgress: (fraction: number) => void, signal: AbortSignal): Promise<string> {
+    const mime = videoMime(file);
+    if (!mime) throw new Error('Unsupported video type. Use MP4, MOV or WebM.');
+    if (file.size > VIDEO_MAX_BYTES) throw new Error('Video too large (max 200 MB)');
+    if (file.size === 0) throw new Error('This file is empty');
+
+    const { id, chunkSize, chunks } = await api.initVideo(file.size, mime);
+    for (let n = 0; n < chunks; n++) {
+        const blob = file.slice(n * chunkSize, Math.min(file.size, (n + 1) * chunkSize));
+        for (let attempt = 1; ; attempt++) {
+            try {
+                await putChunk(id, n, blob, loaded => onProgress((n * chunkSize + loaded) / file.size), signal);
+                break;
+            } catch (e: any) {
+                if (e.permanent || attempt >= 3 || signal.aborted) throw e;
+                await new Promise(r => setTimeout(r, 600 * attempt)); // brief pause, then retry the same piece
+            }
+        }
+        onProgress(Math.min(1, ((n + 1) * chunkSize) / file.size));
+    }
+    await api.completeVideo(id);
+    return `[vid:${id}]`;
+}

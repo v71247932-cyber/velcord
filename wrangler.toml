@@ -9,6 +9,10 @@ binding = "DB"
 database_name = "velcord-db"
 database_id = "119ccd55-3206-4f10-9494-ee7f352ed255"
 
+[[kv_namespaces]]
+binding = "MEDIA"
+id = "2237ef744b1a41f49f9916899867f929"
+
 [vars]
 JWT_SECRET = "change-this-to-a-random-secret-in-production"
 

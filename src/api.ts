@@ -86,6 +86,12 @@ export const api = {
         return data as { id: string; expiresAt: number };
     },
 
+    initVideo: (size: number, mime: string) =>
+        request<{ id: string; chunkSize: number; chunks: number }>('POST', '/api/videos', { size, mime }),
+
+    completeVideo: (id: string) =>
+        request<{ id: string; expiresAt: number }>('POST', `/api/videos/${id}/complete`, {}),
+
     callSignal: (to: number, type: string, payload?: unknown) =>
         request<{ success: boolean }>('POST', '/api/calls/signal', { to, type, payload: payload === undefined ? undefined : JSON.stringify(payload) }),
 

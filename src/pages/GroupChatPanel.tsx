@@ -4,7 +4,7 @@ import type { Message, Group } from '../api';
 import { useAuth } from '../AuthContext';
 import Avatar from '../components/Avatar';
 import { MessageContent } from '../components/MessageContent';
-import { uploadAsMessage } from '../uploads';
+import { useAttach } from '../useAttach';
 import { useChat } from '../useChat';
 
 interface GroupChatPanelProps {
@@ -28,7 +28,6 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileRef = useRef<HTMLInputElement>(null);
     const prevCount = useRef(0);
-    const [uploading, setUploading] = useState(false);
 
     const { messages, setMessages, send } = useChat({
         key: `group-${group.id}`,
@@ -58,21 +57,10 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
         textareaRef.current?.focus();
     }
 
-    async function sendImage(file: File) {
-        if (uploading) return;
-        setUploading(true);
-        try {
-            const content = await uploadAsMessage(file);
-            await send(content);
-        } catch (err: any) {
-            alert(err.message);
-        } finally {
-            setUploading(false);
-        }
-    }
+    const { uploading, progress, label, attach: sendImage, cancel: cancelUpload } = useAttach(send);
 
     function handlePaste(e: React.ClipboardEvent) {
-        const file = Array.from(e.clipboardData.files).find(f => f.type.startsWith('image/'));
+        const file = Array.from(e.clipboardData.files).find(f => f.type.startsWith('image/') || f.type.startsWith('video/'));
         if (file) {
             e.preventDefault();
             sendImage(file);
@@ -160,12 +148,23 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
                 <div ref={bottomRef} />
             </div>
 
+            {uploading && progress !== null && (
+                <div className="upload-bar">
+                    <div className="upload-bar-top">
+                        <span className="upload-bar-name">Uploading {label}</span>
+                        <span>{Math.round(progress * 100)}%</span>
+                        <button type="button" onClick={cancelUpload}>Cancel</button>
+                    </div>
+                    <div className="upload-bar-track"><div className="upload-bar-fill" style={{ width: `${Math.round(progress * 100)}%` }} /></div>
+                </div>
+            )}
+
             <div className="chat-input-area">
                 <div className="chat-input-wrapper">
                     <input
                         ref={fileRef}
                         type="file"
-                        accept="image/*"
+                        accept="image/*,video/mp4,video/quicktime,video/webm,video/x-m4v,video/ogg,.mp4,.mov,.m4v,.webm"
                         hidden
                         onChange={e => {
                             const f = e.target.files?.[0];
@@ -177,7 +176,7 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
                         className="attach-btn"
                         onClick={() => fileRef.current?.click()}
                         disabled={uploading}
-                        title="Send an image (kept for 2 days)"
+                        title="Send a picture (kept 2 days) or a video up to 200 MB (kept 1 day)"
                         type="button"
                     >
                         {uploading ? '…' : '+'}

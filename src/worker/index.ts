@@ -6,6 +6,8 @@ export interface Env {
   DB: D1Database;
   JWT_SECRET: string;
   ASSETS: Fetcher;
+  /** Workers KV: holds the video chunks, which expire on their own */
+  MEDIA?: KVNamespace;
 }
 
 // --- Simple JWT implementation using Web Crypto ---
@@ -82,6 +84,8 @@ async function purgeOldMessages(env: Env) {
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM direct_messages WHERE created_at < unixepoch() - ${MESSAGE_TTL}`),
     env.DB.prepare(`DELETE FROM group_messages WHERE created_at < unixepoch() - ${MESSAGE_TTL}`),
+    env.DB.prepare('DELETE FROM uploads WHERE expires_at <= unixepoch()'),
+    env.DB.prepare('DELETE FROM videos WHERE expires_at <= unixepoch()'), // the KV chunks expire by themselves
   ]);
 }
 
@@ -217,6 +221,7 @@ async function handleUpdateProfile(request: Request, env: Env): Promise<Response
 function previewOf(content: string | null): string | null {
   if (!content) return null;
   if (/^\[img:[a-f0-9]{32}\]$/.test(content)) return 'Sent an image';
+  if (/^\[vid:[a-f0-9]{32}\]$/.test(content)) return 'Sent a video';
   return content.length > 120 ? content.slice(0, 117) + '...' : content;
 }
 
@@ -620,6 +625,17 @@ function ensureSchema(env: Env): Promise<void> {
           expires_at INTEGER NOT NULL
         )`),
         env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_uploads_expires ON uploads(expires_at)'),
+        env.DB.prepare(`CREATE TABLE IF NOT EXISTS videos (
+          id TEXT PRIMARY KEY,
+          owner_id INTEGER NOT NULL,
+          mime TEXT NOT NULL,
+          size INTEGER NOT NULL,
+          chunks INTEGER NOT NULL,
+          ready INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          expires_at INTEGER NOT NULL
+        )`),
+        env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_videos_expires ON videos(expires_at)'),
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS call_signals (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           from_id INTEGER NOT NULL,
@@ -685,6 +701,127 @@ async function handleGetUpload(env: Env, id: string): Promise<Response> {
       ...CORS,
     },
   });
+}
+
+// --- Video clips: up to 200 MB, kept 1 day ---
+// A clip is uploaded in 5 MB chunks into Workers KV (each chunk expires by itself) and
+// described by one small row in D1. Playback supports Range requests so the video can be seeked.
+const VIDEO_TTL = 24 * 60 * 60;
+const VIDEO_MAX_BYTES = 200 * 1024 * 1024;
+const VIDEO_CHUNK = 5 * 1024 * 1024;
+const VIDEO_POOL_MAX = 800 * 1024 * 1024; // KV on the free plan stores 1 GB in total
+const VIDEO_PER_USER = 4; // clips a person can have at the same time
+const VIDEO_MIMES = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-m4v', 'video/ogg'];
+const videoKey = (id: string, n: number) => `v:${id}:${n}`;
+
+type VideoRow = { id: string; owner_id: number; mime: string; size: number; chunks: number; ready: number; expires_at: number };
+
+async function loadVideo(env: Env, id: string): Promise<VideoRow | null> {
+  return await env.DB.prepare('SELECT id, owner_id, mime, size, chunks, ready, expires_at FROM videos WHERE id = ?').bind(id).first() as VideoRow | null;
+}
+
+async function handleVideoInit(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  if (!env.MEDIA) return err('Video storage is not configured', 503);
+  const { size, mime } = await request.json() as { size: number; mime: string };
+  if (!Number.isInteger(size) || size <= 0) return err('Invalid file size');
+  if (size > VIDEO_MAX_BYTES) return err('Video too large (max 200 MB)');
+  if (!VIDEO_MIMES.includes(mime)) return err('Unsupported video type (use MP4, MOV or WebM)');
+
+  const now = Math.floor(Date.now() / 1000);
+  const mine = await env.DB.prepare('SELECT COUNT(*) as c FROM videos WHERE owner_id = ? AND expires_at > ?').bind(auth.userId, now).first() as { c: number };
+  if (mine.c >= VIDEO_PER_USER) return err(`You already have ${VIDEO_PER_USER} clips online. They are deleted after 1 day.`, 429);
+  const pool = await env.DB.prepare('SELECT COALESCE(SUM(size), 0) as s FROM videos WHERE expires_at > ?').bind(now).first() as { s: number };
+  if (pool.s + size > VIDEO_POOL_MAX) return err('Video storage is full right now. Try again later.', 507);
+
+  const id = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b => b.toString(16).padStart(2, '0')).join('');
+  const chunks = Math.ceil(size / VIDEO_CHUNK);
+  await env.DB.prepare('INSERT INTO videos (id, owner_id, mime, size, chunks, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind(id, auth.userId, mime, size, chunks, now + VIDEO_TTL).run();
+  return json({ id, chunkSize: VIDEO_CHUNK, chunks }, 201);
+}
+
+async function handleVideoChunk(request: Request, env: Env, id: string, n: number): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  if (!env.MEDIA) return err('Video storage is not configured', 503);
+  const row = await loadVideo(env, id);
+  if (!row || row.owner_id !== auth.userId) return err('Not found', 404);
+  if (row.ready) return err('Upload already finished');
+  if (!Number.isInteger(n) || n < 0 || n >= row.chunks) return err('Invalid chunk');
+  const body = await request.arrayBuffer();
+  const expected = n === row.chunks - 1 ? row.size - n * VIDEO_CHUNK : VIDEO_CHUNK;
+  if (body.byteLength !== expected) return err(`Chunk must be ${expected} bytes`);
+  await env.MEDIA.put(videoKey(id, n), body, { expirationTtl: VIDEO_TTL + 3600 });
+  return json({ ok: true });
+}
+
+async function handleVideoComplete(request: Request, env: Env, id: string): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const row = await loadVideo(env, id);
+  if (!row || row.owner_id !== auth.userId) return err('Not found', 404);
+  await env.DB.prepare('UPDATE videos SET ready = 1 WHERE id = ?').bind(id).run();
+  return json({ id, expiresAt: row.expires_at });
+}
+
+// "bytes=0-99", "bytes=500-" or "bytes=-200"
+function parseRange(header: string, size: number): { start: number; end: number } | null {
+  const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!m || (m[1] === '' && m[2] === '')) return null;
+  let start: number, end: number;
+  if (m[1] === '') { const suffix = parseInt(m[2]); start = Math.max(0, size - suffix); end = size - 1; }
+  else { start = parseInt(m[1]); end = m[2] === '' ? size - 1 : Math.min(parseInt(m[2]), size - 1); }
+  if (start > end || start >= size) return null;
+  return { start, end };
+}
+
+async function handleGetVideo(request: Request, env: Env, id: string): Promise<Response> {
+  if (!env.MEDIA) return err('Video storage is not configured', 503);
+  const row = await loadVideo(env, id);
+  const now = Math.floor(Date.now() / 1000);
+  if (!row || !row.ready || row.expires_at <= now) return err('Video expired', 404);
+
+  const rangeHeader = request.headers.get('Range');
+  let start = 0, end = row.size - 1, status = 200;
+  if (rangeHeader) {
+    const r = parseRange(rangeHeader, row.size);
+    if (!r) return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${row.size}`, ...CORS } });
+    start = r.start; end = r.end; status = 206;
+  }
+  const headers: Record<string, string> = {
+    'Content-Type': row.mime,
+    'Accept-Ranges': 'bytes',
+    'Content-Length': String(end - start + 1),
+    'Cache-Control': `private, max-age=${Math.min(row.expires_at - now, 3600)}`,
+    'X-Content-Type-Options': 'nosniff',
+    ...CORS,
+  };
+  if (status === 206) headers['Content-Range'] = `bytes ${start}-${end}/${row.size}`;
+  if (request.method === 'HEAD') return new Response(null, { status, headers });
+
+  let i = Math.floor(start / VIDEO_CHUNK);
+  const last = Math.floor(end / VIDEO_CHUNK);
+  const media = env.MEDIA;
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (i > last) { controller.close(); return; }
+      let buf: ArrayBuffer | null = null;
+      // A chunk written a moment ago may need a short while to appear in other regions
+      for (let attempt = 0; attempt < 4 && !buf; attempt++) {
+        buf = await media.get(videoKey(id, i), 'arrayBuffer');
+        if (!buf) await new Promise(r => setTimeout(r, 300));
+      }
+      if (!buf) { controller.error(new Error('Video chunk missing')); return; }
+      const chunkStart = i * VIDEO_CHUNK;
+      const from = Math.max(start, chunkStart) - chunkStart;
+      const to = Math.min(end, chunkStart + buf.byteLength - 1) - chunkStart + 1;
+      controller.enqueue(new Uint8Array(buf, from, to - from));
+      i++;
+    },
+  });
+  return new Response(body, { status, headers });
 }
 
 // --- Message status (sent / delivered / seen ticks) ---
@@ -780,6 +917,15 @@ export default {
       if (path === '/api/uploads' && request.method === 'POST') return handleUpload(request, env);
       const uploadMatch = path.match(/^\/api\/uploads\/([a-f0-9]+)$/);
       if (uploadMatch && request.method === 'GET') return handleGetUpload(env, uploadMatch[1]);
+
+      // Video clips
+      if (path === '/api/videos' && request.method === 'POST') return handleVideoInit(request, env);
+      const videoChunkMatch = path.match(/^\/api\/videos\/([a-f0-9]{32})\/chunks\/(\d+)$/);
+      if (videoChunkMatch && request.method === 'PUT') return handleVideoChunk(request, env, videoChunkMatch[1], parseInt(videoChunkMatch[2]));
+      const videoDoneMatch = path.match(/^\/api\/videos\/([a-f0-9]{32})\/complete$/);
+      if (videoDoneMatch && request.method === 'POST') return handleVideoComplete(request, env, videoDoneMatch[1]);
+      const videoGetMatch = path.match(/^\/api\/videos\/([a-f0-9]{32})$/);
+      if (videoGetMatch && (request.method === 'GET' || request.method === 'HEAD')) return handleGetVideo(request, env, videoGetMatch[1]);
 
       // Calls
       if (path === '/api/calls/signal' && request.method === 'POST') return handleCallSignal(request, env);
