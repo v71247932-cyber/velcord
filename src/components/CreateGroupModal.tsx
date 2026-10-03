@@ -72,7 +72,7 @@ export default function CreateGroupModal({ friends, onClose, onCreated }: Create
                                         className={`friend-select-item ${selected.includes(f.id) ? 'selected' : ''}`}
                                         onClick={() => toggleFriend(f.id)}
                                     >
-                                        <Avatar name={f.username} color={f.avatarColor} size="sm" />
+                                        <Avatar name={f.username} color={f.avatarColor} src={f.avatarUrl} size="sm" status={f.online ? 'online' : 'offline'} />
                                         <span className="friend-name">{f.username}</span>
                                         <div className="checkbox">
                                             {selected.includes(f.id) && '✓'}
