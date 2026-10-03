@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { isMobileDevice } from '../notify';
 
 const URL_RE = /https?:\/\/[^\s<>"']+/g;
 const TRAILING = /[.,;:!?)\]}'"»]+$/;
@@ -32,11 +33,46 @@ export function parseYouTube(link: string): { id: string; start: number } | null
 /** A YouTube card: picture first, the real player (with sound) after one click. */
 export function YouTubeCard({ id, start }: { id: string; start: number }) {
     const [playing, setPlaying] = useState(false);
-    const src = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&playsinline=1${start ? `&start=${start}` : ''}`;
+    const [stillMuted, setStillMuted] = useState(false);
+    const frame = useRef<HTMLIFrameElement>(null);
+    // On a phone a tap on our picture does not count as a tap inside the player, so the player would
+    // start with the sound off. There the player opens ready and its own play button starts it with sound.
+    const autoplay = !isMobileDevice();
+    const src = `https://www.youtube-nocookie.com/embed/${id}?rel=0&playsinline=1&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`
+        + `${autoplay ? '&autoplay=1' : ''}${start ? `&start=${start}` : ''}`;
+
+    // Talk to the player: if it reports that it is muted, turn the sound on
+    useEffect(() => {
+        if (!playing) return;
+        const f = frame.current;
+        if (!f) return;
+        let asked = 0;
+        const send = (o: object) => f.contentWindow?.postMessage(JSON.stringify(o), '*');
+        const unmute = () => { send({ event: 'command', func: 'unMute', args: [] }); send({ event: 'command', func: 'setVolume', args: [100] }); };
+        const onMessage = (e: MessageEvent) => {
+            if (e.source !== f.contentWindow || typeof e.data !== 'string') return;
+            let d: any;
+            try { d = JSON.parse(e.data); } catch { return; }
+            const muted = d?.info?.muted;
+            if (d?.event === 'infoDelivery' && typeof muted === 'boolean') {
+                if (muted && asked < 3) { asked++; unmute(); }
+                setStillMuted(muted && asked >= 3);
+            }
+        };
+        const hello = () => {
+            send({ event: 'listening', id: 1, channel: 'widget' });
+            for (const n of ['onReady', 'onStateChange']) send({ event: 'command', func: 'addEventListener', args: [n], id: 1, channel: 'widget' });
+        };
+        window.addEventListener('message', onMessage);
+        f.addEventListener('load', hello);
+        return () => { window.removeEventListener('message', onMessage); f.removeEventListener('load', hello); };
+    }, [playing]);
+
     return (
         <div className="yt-card" onClick={e => e.stopPropagation()}>
             {playing ? (
                 <iframe
+                    ref={frame}
                     className="yt-frame"
                     src={src}
                     title="YouTube video"
@@ -52,6 +88,8 @@ export function YouTubeCard({ id, start }: { id: string; start: number }) {
                     </span>
                 </button>
             )}
+            {playing && !autoplay && <div className="yt-hint">Tap play in the video. The sound starts with it.</div>}
+            {stillMuted && <div className="yt-hint">Your device keeps the sound off. Tap the speaker icon in the player.</div>}
             <a className="yt-open" href={`https://www.youtube.com/watch?v=${id}${start ? `&t=${start}s` : ''}`} target="_blank" rel="noopener noreferrer">Open on YouTube</a>
         </div>
     );

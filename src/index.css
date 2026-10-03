@@ -1934,3 +1934,4 @@ html.desktop-app .viewer { top: 28px; }
 .yt-open { display: block; padding: 7px 12px; font-size: 12px; background: var(--bg-modifier); color: var(--text-muted); text-decoration: none; }
 .yt-open:hover { color: var(--text-primary); }
 .msg-group-sent .msg-link { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
+.yt-hint { padding: 7px 12px; font-size: 12px; background: #2b2d31; color: #f0b232; }
