@@ -142,7 +142,7 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
                 {messages.length === 0 && (
                     <div className="empty-state" style={{ flex: 1 }}>
                         <div className="empty-icon">
-                            <Avatar name={group.name} color="#5865f2" size="lg" />
+                            <Avatar name={group.name} color="#5865f2" src={group.avatarUrl ?? undefined} size="xl" />
                         </div>
                         <p>
                             Welcome to the beginning of the <strong>{group.name}</strong> group chat.

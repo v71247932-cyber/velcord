@@ -1902,3 +1902,6 @@ html.desktop-app .viewer { top: 28px; }
 .crop-zoom { display: flex; align-items: center; gap: 12px; margin: 14px auto 0; width: min(540px, 100%); font-size: 13px; color: var(--text-secondary); }
 .crop-zoom input[type=range] { flex: 1; accent-color: var(--blurple); }
 .crop-error { margin-top: 10px; font-size: 13px; color: #f23f43; }
+
+/* the picture in "This is the beginning of your history" is shown in full colour */
+.empty-icon:has(.avatar) { opacity: 1; }
