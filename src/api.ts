@@ -26,6 +26,10 @@ export const api = {
 
     me: () => request<User>('GET', '/api/me'),
 
+    /** Waits until something new happens for me (message, call, tick), or ~12 s. */
+    wait: (marks: string | null) =>
+        request<{ marks: string }>('GET', marks ? `/api/wait?m=${marks}` : '/api/wait'),
+
     getFriends: () => request<FriendsData>('GET', '/api/friends'),
 
     addFriend: (username: string) => request<{ success: boolean }>('POST', '/api/friends/add', { username }),

@@ -11,6 +11,7 @@ import { bannerStyle } from '../banner';
 import { playMessageSound } from '../ringtones';
 import VerifiedBadge from '../components/VerifiedBadge';
 import GroupSettingsModal from '../components/GroupSettingsModal';
+import { onLive, startLive, stopLive } from '../live';
 import { coverImageDataUrl } from '../uploads';
 import { askNotificationPermissionOnFirstClick, notify, setBadge, isDesktopApp, INSTALL_COMMAND } from '../notify';
 import { PhoneIcon, UsersIcon, PlusIcon } from '../components/Icons';
@@ -80,12 +81,16 @@ export default function MainLayout() {
 
     useEffect(() => {
         load();
-        const interval = setInterval(load, 5000);
-        return () => clearInterval(interval);
+        startLive();
+        const off = onLive(load);
+        // Presence needs a regular heartbeat (a person counts as online for 20 s after the last one)
+        const interval = setInterval(load, 8000);
+        return () => { clearInterval(interval); off(); stopLive(); };
     }, []);
 
     function openDM(friend: FriendUser) {
         setView({ type: 'dm', friend });
+        setTimeout(load, 1500); // the chat marks messages as seen, so refresh the unread list soon after
         setSidebarOpen(false); // Close on mobile
     }
 
@@ -238,6 +243,10 @@ export default function MainLayout() {
 
     openDMRef.current = openDM;
     const pendingCount = friendsData.pendingReceived.length;
+    // Newest first. The chat that is open and in front is already being read, so it leaves the list at once.
+    const unreadFriends = friendsData.friends
+        .filter(f => (f.unread || 0) > 0 && !(view.type === 'dm' && view.friend.id === f.id && document.hasFocus()))
+        .sort((a, b) => (b.lastUnreadId || 0) - (a.lastUnreadId || 0));
     const currentFriend = view.type === 'dm' ? view.friend : null;
     const currentGroup = view.type === 'group' ? (groups.find(g => g.id === view.group.id) ?? view.group) : null;
 
@@ -263,6 +272,20 @@ export default function MainLayout() {
 
             {/* Left navigation icons */}
             <nav className="nav-sidebar">
+
+                {/* Unread messages: the sender's picture waits here, above the groups, until the chat is opened */}
+                {unreadFriends.map(f => (
+                    <button
+                        key={`unread-${f.id}`}
+                        className="nav-icon-btn nav-unread-btn"
+                        onClick={() => openDM(f)}
+                        title={`${f.username}: ${f.preview || 'new message'}`}
+                    >
+                        <Avatar name={f.username} color={f.avatarColor} src={f.avatarUrl} size="lg" />
+                        <span className="nav-unread-count">{(f.unread || 0) > 99 ? '99+' : f.unread}</span>
+                    </button>
+                ))}
+                {unreadFriends.length > 0 && <div className="nav-separator" />}
 
                 {groups.map(g => (
                     <button

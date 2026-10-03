@@ -751,6 +751,7 @@ function ensureSchema(env: Env): Promise<void> {
           created_at INTEGER NOT NULL DEFAULT (unixepoch())
         )`),
         env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_call_signals_to ON call_signals(to_id, id)'),
+        env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_dm_receiver ON direct_messages(receiver_id, id)'),
       ]);
     })().catch(e => { schemaReady = null; throw e; });
   }
@@ -930,6 +931,33 @@ async function handleGetVideo(request: Request, env: Env, id: string): Promise<R
   return new Response(body, { status, headers });
 }
 
+// --- Live updates: one request that waits until something new happens for this user ---
+// The app calls this in a loop. It answers at once when a message, a call signal or a tick
+// changed, otherwise after ~12 seconds. This replaces waiting for the next periodic poll.
+async function readMarks(env: Env, me: number): Promise<string> {
+  const r = await env.DB.prepare(`SELECT
+    (SELECT COALESCE(MAX(id), 0) FROM direct_messages WHERE receiver_id = ?) AS dm,
+    (SELECT COALESCE(MAX(gm.id), 0) FROM group_messages gm WHERE gm.group_id IN (SELECT group_id FROM group_members WHERE user_id = ?)) AS grp,
+    (SELECT COALESCE(MAX(id), 0) FROM call_signals WHERE to_id = ?) AS sig,
+    (SELECT COALESCE(MAX(MAX(COALESCE(delivered_at, 0), COALESCE(read_at, 0))), 0) FROM direct_messages WHERE sender_id = ?) AS st
+  `).bind(me, me, me, me).first() as { dm: number; grp: number; sig: number; st: number };
+  return `${r.dm}.${r.grp}.${r.sig}.${r.st}`;
+}
+
+async function handleWait(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const known = new URL(request.url).searchParams.get('m');
+  let marks = await readMarks(env, auth.userId);
+  if (!known || !/^\d+\.\d+\.\d+\.\d+$/.test(known) || known !== marks) return json({ marks });
+  for (let i = 0; i < 15; i++) {
+    await new Promise(r => setTimeout(r, 800));
+    marks = await readMarks(env, auth.userId);
+    if (marks !== known) break;
+  }
+  return json({ marks });
+}
+
 // --- Message status (sent / delivered / seen ticks) ---
 async function handleMessageStatus(request: Request, env: Env, otherUserId: number): Promise<Response> {
   const auth = await getAuth(request, env);
@@ -1024,6 +1052,8 @@ export default {
       if (path === '/api/uploads' && request.method === 'POST') return handleUpload(request, env);
       const uploadMatch = path.match(/^\/api\/uploads\/([a-f0-9]+)$/);
       if (uploadMatch && request.method === 'GET') return handleGetUpload(env, uploadMatch[1]);
+
+      if (path === '/api/wait' && request.method === 'GET') return handleWait(request, env);
 
       // Official notifications (needs the secret key)
       if (path === '/api/system/notify' && request.method === 'POST') return handleSystemNotify(request, env);

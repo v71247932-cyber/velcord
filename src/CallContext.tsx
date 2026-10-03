@@ -6,6 +6,7 @@ import { useAuth } from './AuthContext';
 import Avatar from './components/Avatar';
 import { notify } from './notify';
 import { startRinging } from './ringtones';
+import { onLive } from './live';
 
 type Phase = 'idle' | 'calling' | 'ringing' | 'connecting' | 'active';
 
@@ -298,7 +299,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
         if (!user) return;
         let stopped = false;
         let timer: number;
+        let busy = false;
         const tick = async () => {
+            if (busy) return;
+            busy = true;
             try {
                 if (lastIdRef.current === null) {
                     const init = await api.callPoll(-1);
@@ -311,10 +315,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
                     }
                 }
             } catch { /* offline: try again */ }
-            if (!stopped) timer = window.setTimeout(tick, phaseRef.current === 'idle' ? 1500 : 500);
+            busy = false;
+            clearTimeout(timer);
+            if (!stopped) timer = window.setTimeout(tick, phaseRef.current === 'idle' ? 3000 : 500);
         };
         tick();
-        return () => { stopped = true; clearTimeout(timer); };
+        // A new call signal wakes this up at once, so ringing starts without waiting for the timer
+        const off = onLive(tick);
+        return () => { stopped = true; clearTimeout(timer); off(); };
     }, [user, handleSignal]);
 
     // Call timer

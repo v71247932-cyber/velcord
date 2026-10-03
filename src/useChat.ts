@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Message, User } from './api';
+import { onLive } from './live';
 
 interface StatusRow { id: number; deliveredAt: number | null; readAt: number | null }
 
@@ -36,9 +37,11 @@ export function useChat({ key, me, fetchMessages, sendMessage, fetchStatuses }: 
         let stopped = false;
         let tick = 0;
         let busy = false;
+        let again = false;
+        let forceStatus = false;
 
         const run = async () => {
-            if (busy) return; // never stack requests when the network is slow
+            if (busy) { again = true; return; } // never stack requests, but do not lose a wake-up
             busy = true;
             try {
                 const newMsgs = await fns.current.fetchMessages(lastId.current);
@@ -53,7 +56,8 @@ export function useChat({ key, me, fetchMessages, sendMessage, fetchStatuses }: 
                 }
                 // Ticks on my messages change rarely: refresh them every third round
                 const statusFn = fns.current.fetchStatuses;
-                if (statusFn && tick > 0 && tick % 3 === 0) {
+                if (statusFn && tick > 0 && (forceStatus || tick % 3 === 0)) {
+                    forceStatus = false;
                     const rows = await statusFn();
                     if (stopped) return;
                     const byId = new Map(rows.map(r => [r.id, r]));
@@ -70,12 +74,17 @@ export function useChat({ key, me, fetchMessages, sendMessage, fetchStatuses }: 
                     });
                 }
             } catch { /* offline: try again next round */ }
-            finally { busy = false; tick++; }
+            finally {
+                busy = false; tick++;
+                if (again && !stopped) { again = false; run(); }
+            }
         };
 
         run();
-        const iv = setInterval(run, 2000);
-        return () => { stopped = true; clearInterval(iv); };
+        // The live channel wakes this up the moment something arrives; the timer is only a safety net
+        const off = onLive(() => { forceStatus = true; run(); });
+        const iv = setInterval(run, 5000);
+        return () => { stopped = true; clearInterval(iv); off(); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [key]);
 

@@ -1831,3 +1831,14 @@ html.desktop-app .viewer { top: 28px; }
   background: #f23f43; color: #fff; font-size: 11px; font-weight: 700;
   display: flex; align-items: center; justify-content: center;
 }
+
+/* ---- Unread senders at the top of the left rail ---- */
+.nav-unread-btn { position: relative; padding: 0; background: none; overflow: visible; border-radius: 50%; animation: unread-pop 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.nav-unread-btn .avatar { width: 48px; height: 48px; transition: border-radius 0.15s; }
+.nav-unread-btn:hover .avatar { border-radius: 35%; }
+.nav-unread-count {
+  position: absolute; right: -4px; bottom: -4px; min-width: 20px; height: 20px; padding: 0 5px;
+  border-radius: 10px; background: #f23f43; color: #fff; font-size: 11px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 3px var(--bg-primary);
+}
+@keyframes unread-pop { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: none; } }
