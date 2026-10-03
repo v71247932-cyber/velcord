@@ -1972,3 +1972,8 @@ html.desktop-app .viewer { top: 28px; }
 .gif-empty strong { color: var(--text-primary); font-size: 14px; }
 .msg-gif { display: block; max-width: min(320px, 100%); max-height: 300px; border-radius: 10px; margin-top: 4px; cursor: zoom-in; background: var(--bg-modifier); }
 .gif-embed { display: inline-block; max-width: 100%; }
+
+/* ---- GIF button: small and square ---- */
+.gif-btn { width: 30px; height: 30px; border-radius: 8px; }
+.gif-btn span { width: 22px; height: 22px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 6px; font-size: 9.5px; letter-spacing: 0; }
+.gif-btn { margin-bottom: 1px; }
