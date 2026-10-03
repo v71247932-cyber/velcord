@@ -7,6 +7,7 @@ import VerifiedBadge from '../components/VerifiedBadge';
 import { MessageContent } from '../components/MessageContent';
 import { useAttach, useDropZone } from '../useAttach';
 import { useChat } from '../useChat';
+import { useStickToBottom } from '../useStickToBottom';
 import GifPicker from '../components/GifPicker';
 import { FOCUS_CHAT } from '../focusChat';
 import { isMobileDevice } from '../notify';
@@ -29,10 +30,8 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
     const { user } = useAuth();
     const [input, setInput] = useState('');
     const [sending] = useState(false);
-    const bottomRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileRef = useRef<HTMLInputElement>(null);
-    const prevCount = useRef(0);
     const [gifOpen, setGifOpen] = useState(false);
     useEffect(() => {
         const focus = () => textareaRef.current?.focus();
@@ -49,12 +48,7 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
         sendMessage: (content) => api.sendGroupMessage(group.id, content),
     });
 
-    useEffect(() => {
-        const jump = prevCount.current === 0 || messages.length - prevCount.current > 1;
-        bottomRef.current?.scrollIntoView({ behavior: jump ? 'auto' : 'smooth' });
-        prevCount.current = messages.length;
-    }, [messages]);
-    useEffect(() => { prevCount.current = 0; }, [group.id]);
+        const { areaRef, onScroll, unseen, jumpToNewest } = useStickToBottom(messages, user?.id, `group-${group.id}`);
 
     async function handleSend() {
         const content = input.trim();
@@ -149,7 +143,7 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
     return (
         <div className="chat-panel" {...zoneProps}>
             {dragging && <div className="drop-overlay">Drop pictures or videos to send them</div>}
-            <div className="messages-area">
+            <div className="messages-area" ref={areaRef} onScroll={onScroll}>
                 {messages.length === 0 && (
                     <div className="empty-state" style={{ flex: 1 }}>
                         <div className="empty-icon">
@@ -161,8 +155,13 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
                     </div>
                 )}
                 {rendered}
-                <div ref={bottomRef} />
             </div>
+
+            {unseen > 0 && (
+                <button type="button" className="jump-new" onClick={jumpToNewest}>
+                    ↓ {unseen} new message{unseen === 1 ? '' : 's'}
+                </button>
+            )}
 
             <TypingLine names={typingNames} />
 

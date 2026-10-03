@@ -1,0 +1,10 @@
+/* "New messages" button shown when you scrolled up and something arrived */
+.jump-new {
+  position: absolute; left: 50%; bottom: 92px; transform: translateX(-50%); z-index: 20;
+  display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 16px;
+  border: none; border-radius: 17px; cursor: pointer;
+  background: var(--blurple); color: #fff; font-size: 13px; font-weight: 600;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.45); animation: jump-in 0.16s ease-out;
+}
+.jump-new:hover { background: var(--blurple-hover); }
+@keyframes jump-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
