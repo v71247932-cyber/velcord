@@ -73,6 +73,18 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
   return derived === hashHex;
 }
 
+// --- Message retention: messages are kept 5 days, then deleted ---
+const MESSAGE_TTL = 5 * 24 * 60 * 60;
+const NOT_EXPIRED = (col: string) => `${col} >= unixepoch() - ${MESSAGE_TTL}`;
+let lastPurge = 0;
+
+async function purgeOldMessages(env: Env) {
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM direct_messages WHERE created_at < unixepoch() - ${MESSAGE_TTL}`),
+    env.DB.prepare(`DELETE FROM group_messages WHERE created_at < unixepoch() - ${MESSAGE_TTL}`),
+  ]);
+}
+
 // --- Avatars ---
 // Pictures are stored as data URLs. API responses never carry them: queries return a short
 // version token and the client loads /api/avatars/<id>?v=<token>, which the browser caches.
@@ -225,9 +237,9 @@ async function handleGetFriends(request: Request, env: Env): Promise<Response> {
     env.DB.prepare('UPDATE users SET last_seen = unixepoch() WHERE id = ?').bind(me),
     env.DB.prepare(`
       SELECT u.id, u.username, u.avatar_color, ${AV('u')} as avatar_url, u.last_seen, f.id as friendship_id,
-             (SELECT COUNT(*) FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL) as unread,
-             (SELECT MAX(dm.id) FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL) as last_unread_id,
-             (SELECT dm.content FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL ORDER BY dm.id DESC LIMIT 1) as preview
+             (SELECT COUNT(*) FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL AND ${NOT_EXPIRED('dm.created_at')}) as unread,
+             (SELECT MAX(dm.id) FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL AND ${NOT_EXPIRED('dm.created_at')}) as last_unread_id,
+             (SELECT dm.content FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL AND ${NOT_EXPIRED('dm.created_at')} ORDER BY dm.id DESC LIMIT 1) as preview
       FROM friendships f
       JOIN users u ON u.id = CASE WHEN f.requester_id = ? THEN f.addressee_id ELSE f.requester_id END
       WHERE (f.requester_id = ? OR f.addressee_id = ?) AND f.status = 'accepted'
@@ -322,7 +334,7 @@ async function handleGetMessages(request: Request, env: Env, otherUserId: number
   const afterId = parseInt(afterParam || '0') || 0;
   const legacySince = afterParam === null ? (url.searchParams.get('since') || '0') : null; // older open tabs
 
-  const pair = '((dm.sender_id = ? AND dm.receiver_id = ?) OR (dm.sender_id = ? AND dm.receiver_id = ?))';
+  const pair = `((dm.sender_id = ? AND dm.receiver_id = ?) OR (dm.sender_id = ? AND dm.receiver_id = ?)) AND ${NOT_EXPIRED('dm.created_at')}`;
   const select = `SELECT dm.id, dm.content, dm.created_at, dm.delivered_at, dm.read_at,
            u.id as sender_id, u.username as sender_username, u.avatar_color as sender_avatar_color, ${AV('u')} as sender_avatar_url
     FROM direct_messages dm JOIN users u ON u.id = dm.sender_id`;
@@ -536,10 +548,10 @@ async function handleGetGroupMessages(request: Request, env: Env, groupId: numbe
            u.id as sender_id, u.username as sender_username, u.avatar_color as sender_avatar_color, ${AV('u')} as sender_avatar_url
     FROM group_messages gm JOIN users u ON u.id = gm.sender_id`;
   const messagesStmt = legacySince !== null
-    ? env.DB.prepare(`${select} WHERE gm.group_id = ? AND gm.created_at > ? ORDER BY gm.created_at ASC, gm.id ASC LIMIT 100`).bind(groupId, legacySince)
+    ? env.DB.prepare(`${select} WHERE gm.group_id = ? AND ${NOT_EXPIRED('gm.created_at')} AND gm.created_at > ? ORDER BY gm.created_at ASC, gm.id ASC LIMIT 100`).bind(groupId, legacySince)
     : initial
-      ? env.DB.prepare(`${select} WHERE gm.group_id = ? ORDER BY gm.id DESC LIMIT ${PAGE_FIRST}`).bind(groupId)
-      : env.DB.prepare(`${select} WHERE gm.group_id = ? AND gm.id > ? ORDER BY gm.id ASC LIMIT 100`).bind(groupId, afterId);
+      ? env.DB.prepare(`${select} WHERE gm.group_id = ? AND ${NOT_EXPIRED('gm.created_at')} ORDER BY gm.id DESC LIMIT ${PAGE_FIRST}`).bind(groupId)
+      : env.DB.prepare(`${select} WHERE gm.group_id = ? AND ${NOT_EXPIRED('gm.created_at')} AND gm.id > ? ORDER BY gm.id ASC LIMIT 100`).bind(groupId, afterId);
 
   const [member, messages] = await env.DB.batch([
     env.DB.prepare('SELECT id FROM group_members WHERE group_id = ? AND user_id = ?').bind(groupId, auth.userId),
@@ -681,7 +693,7 @@ async function handleMessageStatus(request: Request, env: Env, otherUserId: numb
   if (!auth) return err('Unauthorized', 401);
   const rows = await env.DB.prepare(`
     SELECT id, delivered_at, read_at FROM direct_messages
-    WHERE sender_id = ? AND receiver_id = ?
+    WHERE sender_id = ? AND receiver_id = ? AND ${NOT_EXPIRED('created_at')}
     ORDER BY id DESC LIMIT 100
   `).bind(auth.userId, otherUserId).all();
   return json(rows.results.map((r: any) => ({ id: r.id, deliveredAt: r.delivered_at, readAt: r.read_at })));
@@ -739,7 +751,7 @@ async function handleCallPoll(request: Request, env: Env): Promise<Response> {
 
 // --- Main fetch handler ---
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx?: { waitUntil(p: Promise<unknown>): void }): Promise<Response> {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS });
     }
@@ -754,6 +766,11 @@ export default {
       }
 
       await ensureSchema(env);
+      if (Date.now() - lastPurge > 10 * 60 * 1000) {
+        lastPurge = Date.now();
+        const job = purgeOldMessages(env).catch(() => { lastPurge = 0; });
+        if (ctx) ctx.waitUntil(job);
+      }
 
       // Avatars (public, cached by the browser)
       const avatarMatch = path.match(/^\/api\/(avatars|group-avatars)\/(\d+)$/);
