@@ -1977,3 +1977,6 @@ html.desktop-app .viewer { top: 28px; }
 .gif-btn { width: 30px; height: 30px; border-radius: 8px; }
 .gif-btn span { width: 22px; height: 22px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 6px; font-size: 9.5px; letter-spacing: 0; }
 .gif-btn { margin-bottom: 1px; }
+
+/* my own messages: every line of text starts from the left, like the other person's */
+.msg-group-sent .msg-text { text-align: left; }
