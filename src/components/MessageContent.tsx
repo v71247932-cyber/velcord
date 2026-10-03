@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { IMAGE_TOKEN, VIDEO_TOKEN } from '../uploads';
 import type { Message, User } from '../api';
 import { CloseIcon, ImageIcon } from './Icons';
@@ -15,17 +15,71 @@ function formatWhen(ts: number): string {
 }
 
 /** Full-screen picture viewer: dark backdrop, sender on the left, buttons on the right. */
-function ImageViewer({ src, sender, createdAt, onClose }: { src: string; sender?: User; createdAt?: number; onClose: () => void }) {
+function ImageViewer({ src, from, sender, createdAt, onClose }: { src: string; from: DOMRect | null; sender?: User; createdAt?: number; onClose: () => void }) {
     const [zoomed, setZoomed] = useState(false);
+    const [ready, setReady] = useState(false);
+    const [flew, setFlew] = useState(false);
+    const [closing, setClosing] = useState(false);
+    const imgRef = useRef<HTMLImageElement>(null);
+    const played = useRef(false);
+    const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+    // Transform that makes the big picture sit exactly on top of the small one in the chat
+    const fromThumb = (el: HTMLImageElement): string | null => {
+        if (!from || reduce) return null;
+        const r = el.getBoundingClientRect();
+        if (!r.width || !r.height) return null;
+        const dx = from.left + from.width / 2 - (r.left + r.width / 2);
+        const dy = from.top + from.height / 2 - (r.top + r.height / 2);
+        return `translate(${dx}px, ${dy}px) scale(${from.width / r.width}, ${from.height / r.height})`;
+    };
+
+    // Opening: start on the thumbnail, then glide to the full size
+    const begin = () => {
+        if (played.current) return;
+        played.current = true;
+        const el = imgRef.current;
+        const t = el ? fromThumb(el) : null;
+        if (!el || !t) { setReady(true); return; }
+        el.style.transition = 'none';
+        el.style.transform = t;
+        el.style.opacity = '1';
+        void el.offsetWidth; // apply the start position before animating
+        el.style.transition = 'transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1)';
+        el.style.transform = 'none';
+        setFlew(true);
+        setReady(true);
+        setTimeout(() => { el.style.transition = ''; el.style.transform = ''; }, 340);
+    };
 
     useEffect(() => {
-        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+        const el = imgRef.current;
+        if (el && el.complete && el.naturalWidth) begin();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Closing: glide back onto the thumbnail while the backdrop fades
+    const close = () => {
+        if (closing) return;
+        const el = imgRef.current;
+        const t = el && !zoomed ? fromThumb(el) : null;
+        setClosing(true);
+        if (el && t) {
+            el.style.transition = 'transform 0.26s cubic-bezier(0.4, 0, 0.2, 1)';
+            el.style.transform = t;
+        }
+        setTimeout(onClose, reduce ? 0 : 260);
+    };
+
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [onClose]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [closing, zoomed]);
 
     return (
-        <div className="viewer" onClick={onClose}>
+        <div className={`viewer ${closing ? 'closing' : ''}`} onClick={close}>
             <div className="viewer-top" onClick={e => e.stopPropagation()}>
                 {sender && (
                     <div className="viewer-who">
@@ -47,11 +101,11 @@ function ImageViewer({ src, sender, createdAt, onClose }: { src: string; sender?
                             <path d="M14 4h6v6M20 4l-9 9M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
                         </svg>
                     </a>
-                    <button className="viewer-close" onClick={onClose} title="Close (Esc)" aria-label="Close"><CloseIcon size={20} /></button>
+                    <button className="viewer-close" onClick={close} title="Close (Esc)" aria-label="Close"><CloseIcon size={20} /></button>
                 </div>
             </div>
-            <div className={`viewer-stage ${zoomed ? 'zoomed' : ''}`} onClick={e => { e.stopPropagation(); if (e.target === e.currentTarget) onClose(); }}>
-                <img src={src} alt="attachment" className="viewer-img" onClick={e => { e.stopPropagation(); setZoomed(z => !z); }} />
+            <div className={`viewer-stage ${zoomed ? 'zoomed' : ''}`} onClick={e => { e.stopPropagation(); if (e.target === e.currentTarget) close(); }}>
+                <img ref={imgRef} src={src} alt="attachment" className={`viewer-img ${ready ? (flew ? 'ready' : 'ready pop') : ''}`} onLoad={begin} onClick={e => { e.stopPropagation(); setZoomed(z => !z); }} />
             </div>
         </div>
     );
@@ -60,6 +114,7 @@ function ImageViewer({ src, sender, createdAt, onClose }: { src: string; sender?
 export function MessageContent({ content, sender, createdAt }: { content: string; sender?: User; createdAt?: number }) {
     const [failed, setFailed] = useState(false);
     const [open, setOpen] = useState(false);
+    const [fromRect, setFromRect] = useState<DOMRect | null>(null);
     const v = VIDEO_TOKEN.exec(content);
     if (v) {
         const vsrc = `${BASE}/api/videos/${v[1]}`;
@@ -83,8 +138,9 @@ export function MessageContent({ content, sender, createdAt }: { content: string
     return (
         <>
             <img className="msg-image" src={src} alt="attachment" loading="lazy" onError={() => setFailed(true)}
-                onClick={e => { e.stopPropagation(); setOpen(true); }} />
-            {open && <ImageViewer src={src} sender={sender} createdAt={createdAt} onClose={() => setOpen(false)} />}
+                style={open ? { visibility: 'hidden' } : undefined}
+                onClick={e => { e.stopPropagation(); setFromRect(e.currentTarget.getBoundingClientRect()); setOpen(true); }} />
+            {open && <ImageViewer src={src} from={fromRect} sender={sender} createdAt={createdAt} onClose={() => setOpen(false)} />}
         </>
     );
 }
