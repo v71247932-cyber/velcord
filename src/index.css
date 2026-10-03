@@ -1760,3 +1760,11 @@ html.desktop-app body { background: var(--bg-primary); }
   border: 1px solid var(--blurple); border-radius: 8px; padding: 6px 8px;
   font-size: 16px; font-weight: 700; font-family: inherit; outline: none;
 }
+
+/* ---- Profile banner behind the bottom user bar ---- */
+.user-bar { position: relative; overflow: hidden; }
+.user-bar > * { position: relative; z-index: 1; }
+.user-bar > .user-bar-bg { position: absolute; inset: 0; z-index: 0; }
+.user-bar-bg::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(18,19,22,0.62), rgba(18,19,22,0.42)); }
+.user-bar-bg ~ .user-bar-main .user-name { text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
+.user-bar-bg ~ .user-bar-main .user-tag { color: #d5d8de; }

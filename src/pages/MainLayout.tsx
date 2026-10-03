@@ -326,6 +326,9 @@ export default function MainLayout() {
                 </div>
 
                 <div className="user-bar">
+                    {(user!.bannerUrl || (user!.bannerColor1 && user!.bannerColor2)) && (
+                        <div className="user-bar-bg" style={bannerStyle(user!)} />
+                    )}
                     <div className="user-bar-main" onClick={() => setShowProfileMenu(true)} title="Profile settings">
                         <Avatar name={user!.username} color={user!.avatarColor} src={user!.avatarUrl} size="md" status="online" />
                         <div className="user-info">
