@@ -85,7 +85,7 @@ export default function CreateGroupModal({ friends, onClose, onCreated }: Create
                 </div>
 
                 <div className="modal-footer">
-                    <button className="cancel-link" onClick={onClose}>Cancel</button>
+                    <button className="btn-link" onClick={onClose}>Cancel</button>
                     <button
                         className="btn-primary"
                         onClick={handleCreate}
