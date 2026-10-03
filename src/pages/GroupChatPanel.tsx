@@ -7,6 +7,8 @@ import VerifiedBadge from '../components/VerifiedBadge';
 import { MessageContent } from '../components/MessageContent';
 import { useAttach, useDropZone } from '../useAttach';
 import { useChat } from '../useChat';
+import { FOCUS_CHAT } from '../focusChat';
+import { isMobileDevice } from '../notify';
 import { TypingLine, useTypingNames, useTypingPing } from '../typing';
 
 interface GroupChatPanelProps {
@@ -30,6 +32,11 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileRef = useRef<HTMLInputElement>(null);
     const prevCount = useRef(0);
+    useEffect(() => {
+        const focus = () => textareaRef.current?.focus();
+        window.addEventListener(FOCUS_CHAT, focus);
+        return () => window.removeEventListener(FOCUS_CHAT, focus);
+    }, []);
     const typingNames = useTypingNames('group', group.id);
     const pingTyping = useTypingPing('group', group.id);
 
@@ -199,7 +206,7 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
                         onPaste={handlePaste}
                         placeholder={`Message #${group.name}`}
                         rows={1}
-                        autoFocus
+                        autoFocus={!isMobileDevice()}
                     />
                     <button
                         className="send-btn"

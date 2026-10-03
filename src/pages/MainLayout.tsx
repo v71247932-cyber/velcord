@@ -9,6 +9,7 @@ import GroupChatPanel from './GroupChatPanel';
 import { useCall } from '../CallContext';
 import { bannerStyle } from '../banner';
 import { playMessageSound } from '../ringtones';
+import { requestChatFocus } from '../focusChat';
 import VerifiedBadge from '../components/VerifiedBadge';
 import GroupSettingsModal from '../components/GroupSettingsModal';
 import { onLive, startLive, stopLive } from '../live';
@@ -98,6 +99,7 @@ export default function MainLayout() {
     function openDM(friend: FriendUser) {
         setShowInfo(false);
         setView({ type: 'dm', friend });
+        requestChatFocus();
         setTimeout(load, 1500); // the chat marks messages as seen, so refresh the unread list soon after
         setSidebarOpen(false); // Close on mobile
     }
@@ -106,6 +108,7 @@ export default function MainLayout() {
         setShowInfo(false);
         setShowGroupSettings(false);
         setView({ type: 'group', group });
+        requestChatFocus();
         setSidebarOpen(false); // Close on mobile
     }
 
