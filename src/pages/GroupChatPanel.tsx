@@ -7,6 +7,7 @@ import VerifiedBadge from '../components/VerifiedBadge';
 import { MessageContent } from '../components/MessageContent';
 import { useAttach, useDropZone } from '../useAttach';
 import { useChat } from '../useChat';
+import GifPicker from '../components/GifPicker';
 import { FOCUS_CHAT } from '../focusChat';
 import { isMobileDevice } from '../notify';
 import { TypingLine, useTypingNames, useTypingPing } from '../typing';
@@ -32,6 +33,7 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileRef = useRef<HTMLInputElement>(null);
     const prevCount = useRef(0);
+    const [gifOpen, setGifOpen] = useState(false);
     useEffect(() => {
         const focus = () => textareaRef.current?.focus();
         window.addEventListener(FOCUS_CHAT, focus);
@@ -176,6 +178,12 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
             )}
 
             <div className="chat-input-area">
+                {gifOpen && (
+                    <GifPicker
+                        onClose={() => setGifOpen(false)}
+                        onPick={id => { setGifOpen(false); send(`[gif:${id}]`).catch((e: any) => alert(e.message || 'Could not send the GIF')); }}
+                    />
+                )}
                 <div className="chat-input-wrapper">
                     <input
                         ref={fileRef}
@@ -208,6 +216,9 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
                         rows={1}
                         autoFocus={!isMobileDevice()}
                     />
+                    <button type="button" className={`gif-btn ${gifOpen ? 'on' : ''}`} onClick={() => setGifOpen(o => !o)} title="GIFs" aria-label="GIFs">
+                        <span>GIF</span>
+                    </button>
                     <button
                         className="send-btn"
                         onClick={handleSend}

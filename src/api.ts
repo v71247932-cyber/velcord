@@ -100,6 +100,22 @@ export const api = {
     completeVideo: (id: string) =>
         request<{ id: string; expiresAt: number }>('POST', `/api/videos/${id}/complete`, {}),
 
+    getGifs: () => request<{ max: number; gifs: GifItem[] }>('GET', '/api/gifs'),
+
+    uploadGif: async (file: File) => {
+        const token = localStorage.getItem('velcord_token');
+        const res = await fetch(`${BASE}/api/gifs`, {
+            method: 'POST',
+            headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-Name': encodeURIComponent(file.name), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+            body: file,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error((data as any).error || 'Upload failed');
+        return data as GifItem;
+    },
+
+    removeGif: (id: string) => request<{ success: boolean }>('DELETE', `/api/gifs/${id}`),
+
     callSignal: (to: number, type: string, payload?: unknown) =>
         request<{ success: boolean }>('POST', '/api/calls/signal', { to, type, payload: payload === undefined ? undefined : JSON.stringify(payload) }),
 
@@ -151,6 +167,14 @@ export interface TypingEntry {
     username: string;
     toId: number | null;
     groupId: number | null;
+}
+
+export interface GifItem {
+    id: string;
+    name: string;
+    mime: string;
+    size: number;
+    createdAt: number;
 }
 
 export interface GroupMember {

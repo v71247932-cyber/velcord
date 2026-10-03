@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { IMAGE_TOKEN, VIDEO_TOKEN } from '../uploads';
+import { IMAGE_TOKEN, VIDEO_TOKEN, GIF_TOKEN } from '../uploads';
 import type { Message, User } from '../api';
 import { CloseIcon, ImageIcon } from './Icons';
 import Avatar from './Avatar';
@@ -130,6 +130,19 @@ export function MessageContent({ content, sender, createdAt }: { content: string
         return (
             <video className="msg-video" src={vsrc} controls preload="metadata" playsInline
                 onClick={e => e.stopPropagation()} onError={() => setFailed(true)} />
+        );
+    }
+    const g = GIF_TOKEN.exec(content);
+    if (g) {
+        const gsrc = `${BASE}/api/gifs/${g[1]}/file`;
+        if (failed) return <div className="msg-expired"><ImageIcon size={15} /> This GIF was removed</div>;
+        return (
+            <>
+                <img className="msg-gif" src={gsrc} alt="GIF" loading="lazy" onError={() => setFailed(true)}
+                    style={open ? { visibility: 'hidden' } : undefined}
+                    onClick={e => { e.stopPropagation(); setFromRect(e.currentTarget.getBoundingClientRect()); setOpen(true); }} />
+                {open && <ImageViewer src={gsrc} from={fromRect} sender={sender} createdAt={createdAt} onClose={() => setOpen(false)} />}
+            </>
         );
     }
     const m = IMAGE_TOKEN.exec(content);

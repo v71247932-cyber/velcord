@@ -82,7 +82,17 @@ const MESSAGE_TTL = 5 * 24 * 60 * 60;
 const NOT_EXPIRED = (col: string) => `${col} >= unixepoch() - ${MESSAGE_TTL}`;
 let lastPurge = 0;
 
+async function purgeRemovedGifs(env: Env) {
+  if (!env.MEDIA) return;
+  const gone = await env.DB.prepare(`SELECT id FROM gifs WHERE removed_at IS NOT NULL AND removed_at < unixepoch() - ${MESSAGE_TTL} LIMIT 50`).all();
+  for (const g of gone.results as { id: string }[]) {
+    await env.MEDIA.delete(`gif:${g.id}`);
+    await env.DB.prepare('DELETE FROM gifs WHERE id = ?').bind(g.id).run();
+  }
+}
+
 async function purgeOldMessages(env: Env) {
+  await purgeRemovedGifs(env);
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM direct_messages WHERE created_at < unixepoch() - ${MESSAGE_TTL}`),
     env.DB.prepare(`DELETE FROM group_messages WHERE created_at < unixepoch() - ${MESSAGE_TTL}`),
@@ -166,6 +176,78 @@ async function handleSystemVideos(request: Request, env: Env): Promise<Response>
   return json(rows.results);
 }
 
+// --- Personal GIF list ---
+// Each person keeps a list of GIFs (.gif, animated .webp or .png) and sends them from the GIF button.
+// The files live in Workers KV without expiry. Removing one only hides it from the list; the file stays
+// for as long as messages are kept (5 days), so GIFs already sent do not break.
+const GIF_MAX_BYTES = 8 * 1024 * 1024;
+const GIF_PER_USER = 40;
+const GIF_POOL_MAX = 120 * 1024 * 1024; // KV on the free plan holds 1 GB in total, clips may use 800 MB of it
+
+function sniffImage(b: Uint8Array): string | null {
+  const at = (i: number, ...v: number[]) => v.every((x, k) => b[i + k] === x);
+  if (b.length > 10 && at(0, 0x47, 0x49, 0x46, 0x38) && (b[4] === 0x37 || b[4] === 0x39) && b[5] === 0x61) return 'image/gif';
+  if (b.length > 10 && at(0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return 'image/png';
+  if (b.length > 12 && at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50)) return 'image/webp';
+  return null;
+}
+
+async function handleGifUpload(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  if (!env.MEDIA) return err('Storage is not configured', 503);
+  const declared = parseInt(request.headers.get('Content-Length') || '0');
+  if (declared > GIF_MAX_BYTES) return err('GIF too large (max 8 MB)');
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (bytes.length === 0) return err('Empty file');
+  if (bytes.length > GIF_MAX_BYTES) return err('GIF too large (max 8 MB)');
+  const mime = sniffImage(bytes);
+  if (!mime) return err('Use a .gif, .webp or .png file');
+
+  const mine = await env.DB.prepare('SELECT COUNT(*) as c FROM gifs WHERE owner_id = ? AND removed_at IS NULL').bind(auth.userId).first() as { c: number };
+  if (mine.c >= GIF_PER_USER) return err(`Your list is full (${GIF_PER_USER} GIFs). Remove one first.`, 429);
+  const pool = await env.DB.prepare('SELECT COALESCE(SUM(size), 0) as s FROM gifs').first() as { s: number };
+  if (pool.s + bytes.length > GIF_POOL_MAX) return err('GIF storage is full right now.', 507);
+
+  let name = 'GIF';
+  try { name = decodeURIComponent(request.headers.get('X-Name') || '').replace(/\.[a-z0-9]{2,5}$/i, '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 60) || 'GIF'; } catch { /* keep default */ }
+  const id = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b => b.toString(16).padStart(2, '0')).join('');
+  await env.MEDIA.put(`gif:${id}`, bytes);
+  await env.DB.prepare('INSERT INTO gifs (id, owner_id, name, mime, size) VALUES (?, ?, ?, ?, ?)').bind(id, auth.userId, name, mime, bytes.length).run();
+  return json({ id, name, mime, size: bytes.length }, 201);
+}
+
+async function handleGifList(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const rows = await env.DB.prepare('SELECT id, name, mime, size, created_at FROM gifs WHERE owner_id = ? AND removed_at IS NULL ORDER BY created_at DESC, rowid DESC').bind(auth.userId).all();
+  return json({ max: GIF_PER_USER, gifs: rows.results.map((r: any) => ({ id: r.id, name: r.name, mime: r.mime, size: r.size, createdAt: r.created_at })) });
+}
+
+async function handleGifFile(env: Env, id: string): Promise<Response> {
+  if (!env.MEDIA) return err('Storage is not configured', 503);
+  const row = await env.DB.prepare('SELECT mime FROM gifs WHERE id = ?').bind(id).first() as { mime: string } | null;
+  if (!row) return err('Not found', 404);
+  const buf = await env.MEDIA.get(`gif:${id}`, 'arrayBuffer');
+  if (!buf) return err('Not found', 404);
+  return new Response(buf, {
+    headers: {
+      'Content-Type': row.mime,
+      'Cache-Control': 'public, max-age=31536000, immutable', // the id never points at another file
+      'X-Content-Type-Options': 'nosniff',
+      ...CORS,
+    },
+  });
+}
+
+async function handleGifRemove(request: Request, env: Env, id: string): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const res = await env.DB.prepare('UPDATE gifs SET removed_at = unixepoch() WHERE id = ? AND owner_id = ? AND removed_at IS NULL').bind(id, auth.userId).run() as any;
+  if (!res?.meta?.changes) return err('Not found', 404);
+  return json({ success: true });
+}
+
 // --- Avatars ---
 // Pictures are stored as data URLs. API responses never carry them: queries return a short
 // version token and the client loads /api/avatars/<id>?v=<token>, which the browser caches.
@@ -211,7 +293,7 @@ async function getAuth(request: Request, env: Env): Promise<{ userId: number; us
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-System-Key',
+  'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-System-Key,X-Name',
 };
 
 function json(data: unknown, status = 200): Response {
@@ -325,6 +407,7 @@ function previewOf(content: string | null): string | null {
   if (!content) return null;
   if (/^\[img:[a-f0-9]{32}\]$/.test(content)) return 'Sent an image';
   if (/^\[vid:[a-f0-9]{32}\]$/.test(content)) return 'Sent a video';
+  if (/^\[gif:[a-f0-9]{32}\]$/.test(content)) return 'Sent a GIF';
   return content.length > 120 ? content.slice(0, 117) + '...' : content;
 }
 
@@ -773,6 +856,16 @@ function ensureSchema(env: Env): Promise<void> {
           expires_at INTEGER NOT NULL
         )`),
         env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_videos_expires ON videos(expires_at)'),
+        env.DB.prepare(`CREATE TABLE IF NOT EXISTS gifs (
+          id TEXT PRIMARY KEY,
+          owner_id INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          mime TEXT NOT NULL,
+          size INTEGER NOT NULL,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          removed_at INTEGER
+        )`),
+        env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_gifs_owner ON gifs(owner_id, removed_at)'),
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS call_signals (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           from_id INTEGER NOT NULL,
@@ -1145,6 +1238,14 @@ export default {
       if (path === '/api/system/notify' && request.method === 'POST') return handleSystemNotify(request, env);
       if (path === '/api/system/status' && request.method === 'POST') return handleSystemStatus(request, env);
       if (path === '/api/system/videos' && request.method === 'POST') return handleSystemVideos(request, env);
+
+      // Personal GIF list
+      if (path === '/api/gifs' && request.method === 'POST') return handleGifUpload(request, env);
+      if (path === '/api/gifs' && request.method === 'GET') return handleGifList(request, env);
+      const gifFileMatch = path.match(/^\/api\/gifs\/([a-f0-9]{32})\/file$/);
+      if (gifFileMatch && request.method === 'GET') return handleGifFile(env, gifFileMatch[1]);
+      const gifMatch = path.match(/^\/api\/gifs\/([a-f0-9]{32})$/);
+      if (gifMatch && request.method === 'DELETE') return handleGifRemove(request, env, gifMatch[1]);
 
       // Video clips
       if (path === '/api/videos' && request.method === 'POST') return handleVideoInit(request, env);

@@ -46,6 +46,7 @@ export async function prepareImage(file: File): Promise<Blob> {
 }
 
 export const IMAGE_TOKEN = /^\[img:([a-f0-9]{32})\]$/;
+export const GIF_TOKEN = /^\[gif:([a-f0-9]{32})\]$/;
 
 /** Uploads an image and returns the message content that references it. */
 export async function uploadAsMessage(file: File): Promise<string> {
