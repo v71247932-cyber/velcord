@@ -5,6 +5,7 @@ import type { CallSignal, User } from './api';
 import { useAuth } from './AuthContext';
 import Avatar from './components/Avatar';
 import { notify } from './notify';
+import { startRinging } from './ringtones';
 
 type Phase = 'idle' | 'calling' | 'ringing' | 'connecting' | 'active';
 
@@ -323,59 +324,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
         return () => clearInterval(t);
     }, [phase]);
 
-    // Ringtone: a bright rising chime for incoming calls, a slow soft two-note ringback while calling.
+    // Ringtone (chosen in settings): plays while an incoming call rings and while we are calling
     useEffect(() => {
         if (phase !== 'ringing' && phase !== 'calling') return;
-        const Ctx = window.AudioContext || (window as any).webkitAudioContext;
         const incoming = phase === 'ringing';
         const prevTitle = document.title;
-        let ctx: AudioContext | null = null;
-        let iv: ReturnType<typeof setInterval> | undefined;
-
-        if (Ctx) {
-            ctx = new Ctx() as AudioContext;
-            ctx.resume().catch(() => {});
-            const c = ctx;
-            // One struck note: quick attack, long exponential decay, a quiet octave on top for brightness
-            const note = (freq: number, at: number, decay: number, vol: number) => {
-                const t0 = c.currentTime + at;
-                const gain = c.createGain();
-                gain.gain.setValueAtTime(0.0001, t0);
-                gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.012);
-                gain.gain.exponentialRampToValueAtTime(0.0001, t0 + decay);
-                gain.connect(c.destination);
-                for (const [mult, level, type] of [[1, 1, 'triangle'], [2, 0.25, 'sine']] as const) {
-                    const osc = c.createOscillator();
-                    const g2 = c.createGain();
-                    osc.type = type;
-                    osc.frequency.value = freq * mult;
-                    g2.gain.value = level;
-                    osc.connect(g2).connect(gain);
-                    osc.start(t0);
-                    osc.stop(t0 + decay + 0.05);
-                }
-            };
-            const E5 = 659.25, G5 = 783.99, B5 = 987.77, E6 = 1318.51, A4 = 440, 
-                  D5 = 587.33, A5 = 880;
-            const pattern = () => {
-                if (incoming) {
-                    // rising arpeggio, played twice
-                    [0, 0.95].forEach((off, i) => {
-                        const v = i === 0 ? 0.2 : 0.14;
-                        note(E5, off + 0.00, 0.55, v);
-                        note(G5, off + 0.13, 0.55, v);
-                        note(B5, off + 0.26, 0.55, v);
-                        note(E6, off + 0.39, 0.9, v * 1.1);
-                    });
-                } else {
-                    note(A4, 0, 1.1, 0.1);
-                    note(D5, 0.38, 1.3, 0.1);
-                    note(A5, 0.76, 1.6, 0.06);
-                }
-            };
-            pattern();
-            iv = setInterval(pattern, incoming ? 3200 : 3600);
-        }
+        const stopSound = startRinging(incoming);
 
         let toast: Notification | null = null;
         if (incoming) {
@@ -385,8 +339,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         }
 
         return () => {
-            if (iv) clearInterval(iv);
-            ctx?.close().catch(() => {});
+            stopSound();
             toast?.close();
             document.title = prevTitle;
         };

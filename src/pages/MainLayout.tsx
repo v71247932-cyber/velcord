@@ -7,6 +7,8 @@ import FriendsPanel from './FriendsPanel';
 import ChatPanel from './ChatPanel';
 import GroupChatPanel from './GroupChatPanel';
 import { useCall } from '../CallContext';
+import { RINGTONES, getRingtoneId, setRingtoneId, previewRingtone } from '../ringtones';
+import type { RingtoneId } from '../ringtones';
 import { askNotificationPermissionOnFirstClick, notify, setBadge, isDesktopApp, INSTALL_COMMAND } from '../notify';
 import { PhoneIcon, UsersIcon, PlusIcon } from '../components/Icons';
 import ProfileCard from '../components/ProfileCard';
@@ -35,6 +37,8 @@ export default function MainLayout() {
     const lastUnreadRef = useRef<Map<number, number> | null>(null);
     const openDMRef = useRef<(f: FriendUser) => void>(() => {});
     const [copied, setCopied] = useState(false);
+    const [ringtone, setRingtone] = useState<RingtoneId>(getRingtoneId());
+    const stopPreview = useRef<(() => void) | null>(null);
 
     // Notify about new direct messages (and show the unread total on the dock/taskbar icon)
     const handleUnread = (friends: FriendUser[]) => {
@@ -404,6 +408,28 @@ export default function MainLayout() {
                                         Remove
                                     </button>
                                 )}
+                            </div>
+
+                            <div className="ringtone-picker">
+                                <div className="desktop-install-title">Call sound</div>
+                                {RINGTONES.map(r => (
+                                    <div
+                                        key={r.id}
+                                        className={`ringtone-row ${ringtone === r.id ? 'on' : ''}`}
+                                        onClick={() => {
+                                            setRingtone(r.id);
+                                            setRingtoneId(r.id);
+                                            stopPreview.current?.();
+                                            stopPreview.current = previewRingtone(r.id);
+                                        }}
+                                    >
+                                        <span className="ringtone-radio" />
+                                        <span className="ringtone-text">
+                                            <span className="ringtone-name">{r.label}</span>
+                                            <span className="ringtone-hint">{r.hint}</span>
+                                        </span>
+                                    </div>
+                                ))}
                             </div>
 
                             {isDesktopApp() ? (
