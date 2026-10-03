@@ -1618,3 +1618,101 @@ body,
 .nav-icon-btn.add-btn:hover { background: #23a55a; color: #fff; border-radius: 35%; }
 .dm-section-label { display: block !important; margin: 4px 8px 6px; }
 .dm-list .dm-section-label.sidebar-section-label { display: block !important; }
+
+/* ======================= Buttons: one consistent look ======================= */
+.btn, .btn-primary:not(.btn), .btn-link, .avatar-btn, .group-action, .call-btn,
+.header-call-btn, .profile-card-call, .desktop-install-cmd button {
+  font-family: inherit;
+  letter-spacing: 0.1px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+.btn:focus-visible, .btn-primary:focus-visible, .btn-link:focus-visible, .avatar-btn:focus-visible,
+.group-action:focus-visible, .call-btn:focus-visible, .header-call-btn:focus-visible, .profile-card-call:focus-visible {
+  outline: 2px solid rgba(110, 122, 255, 0.85);
+  outline-offset: 2px;
+}
+
+/* base button */
+.btn { border-radius: 10px; font-weight: 600; }
+.btn:active:not(:disabled) { transform: scale(0.97); }
+.btn-sm { padding: 0 14px; min-height: 32px; font-size: 13px; border-radius: 8px; }
+
+/* primary: soft gradient, light top edge, gentle glow */
+.btn-primary {
+  background: linear-gradient(180deg, #6a76f7 0%, #5865f2 100%);
+  color: #fff;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.2) inset, 0 4px 14px rgba(88, 101, 242, 0.32);
+}
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #7580f8 0%, #5f6cf4 100%);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.25) inset, 0 6px 18px rgba(88, 101, 242, 0.45);
+  transform: translateY(-1px);
+}
+.btn-primary:active:not(:disabled) { transform: translateY(0) scale(0.98); }
+.btn-primary:disabled { box-shadow: none; opacity: 0.5; cursor: not-allowed; }
+
+/* primary / text buttons used inside dialogs (they carry no .btn class) */
+.btn-primary:not(.btn), .btn-link {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  width: auto; margin-top: 0;
+  height: 38px; padding: 0 20px;
+  border: none; border-radius: 10px;
+  font-size: 14px; font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-primary:not(.btn):active:not(:disabled), .btn-link:active:not(:disabled) { transform: scale(0.97); }
+.btn-link {
+  background: transparent;
+  color: var(--text-secondary);
+}
+.btn-link:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
+.btn-link:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* secondary */
+.btn-secondary {
+  background: var(--bg-accent);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.05) inset;
+}
+.btn-secondary:hover:not(:disabled) { background: var(--bg-hover); box-shadow: 0 0 0 1px rgba(255,255,255,0.09) inset; }
+
+/* danger / success */
+.btn-danger { background: #e5484d; color: #fff; box-shadow: 0 1px 0 rgba(255,255,255,0.15) inset; }
+.btn-danger:hover:not(:disabled) { background: #f0565b; }
+.btn-success { background: #2fb26a; color: #fff; box-shadow: 0 1px 0 rgba(255,255,255,0.18) inset; }
+.btn-success:hover:not(:disabled) { background: #36c577; }
+.friend-actions .btn-danger { background: var(--bg-accent); color: var(--text-secondary); box-shadow: none; }
+.friend-actions .btn-danger:hover { background: #e5484d; color: #fff; }
+.friend-actions { gap: 8px; }
+
+/* dialog footers */
+.modal-footer, .modal-actions { gap: 8px; align-items: center; }
+.modal-footer { padding: 14px 20px; }
+
+/* profile + group buttons */
+.avatar-btn { height: 36px; padding: 0 16px; border-radius: 10px; font-weight: 600; }
+.group-action { height: 36px; border-radius: 10px; }
+.group-action:active:not(:disabled) { transform: scale(0.98); }
+.header-call-btn, .profile-card-call {
+  height: 34px; padding: 0 14px; border-radius: 10px;
+  background: var(--bg-accent);
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.05) inset;
+}
+.profile-card-call { height: 38px; }
+.header-call-btn:hover:not(:disabled), .profile-card-call:hover:not(:disabled) { box-shadow: 0 0 0 1px rgba(255,255,255,0.1) inset; }
+.header-call-btn:active:not(:disabled), .profile-card-call:active:not(:disabled) { transform: scale(0.97); }
+
+/* call window */
+.call-btn { height: 38px; border-radius: 10px; font-size: 13px; box-shadow: 0 0 0 1px rgba(255,255,255,0.05) inset; }
+.call-btn:active:not(:disabled) { transform: scale(0.97); }
+.call-btn-accept { background: linear-gradient(180deg, #2fb26a, #23a55a); box-shadow: 0 4px 14px rgba(35,165,90,0.35); }
+.call-btn-end { background: linear-gradient(180deg, #ea5256, #da373c); box-shadow: 0 4px 14px rgba(218,55,60,0.3); }
+.call-btn-on { box-shadow: 0 4px 14px rgba(240,178,50,0.25); }
+
+/* send / attach / small icon buttons */
+.send-btn { border-radius: 10px; }
+.send-btn:hover:not(:disabled) { transform: translateY(-1px); }
+.copy-btn, .desktop-install-cmd button { border-radius: 8px; }
+.desktop-install-cmd code { white-space: normal; word-break: break-all; overflow-x: visible; line-height: 1.4; }
