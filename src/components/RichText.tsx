@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { isMobileDevice } from '../notify';
+import { api } from '../api';
 
 const URL_RE = /https?:\/\/[^\s<>"']+/g;
 const TRAILING = /[.,;:!?)\]}'"»]+$/;
@@ -28,6 +29,59 @@ export function parseYouTube(link: string): { id: string; start: number } | null
     }
     if (!id || !/^[A-Za-z0-9_-]{11}$/.test(id)) return null;
     return { id, start: parseStart(u.searchParams.get('t') || u.searchParams.get('start')) };
+}
+
+// ---------------------------------------------------------------- GIFs behind links
+type GifSource =
+    | { kind: 'img'; src: string }
+    | { kind: 'video'; src: string }   // imgur .gifv is really a looping muted mp4
+    | { kind: 'tenor'; link: string }; // a page: the real GIF is looked up on the server
+
+/** Which links hold a GIF: direct files, Giphy pages, Imgur .gifv and Tenor pages. Everything else is null. */
+export function parseGif(link: string): GifSource | null {
+    let u: URL;
+    try { u = new URL(link); } catch { return null; }
+    if (u.protocol !== 'https:') return null; // plain http would be blocked as mixed content anyway
+    const host = u.hostname.replace(/^www\./, '');
+    const path = u.pathname;
+    if (host === 'tenor.com' && /^\/view\/[a-z0-9-]+-\d{6,25}$/i.test(path)) return { kind: 'tenor', link: `https://tenor.com${path}` };
+    if (host === 'giphy.com') {
+        const m = /^\/gifs\/(?:[^/]*-)?([A-Za-z0-9]{8,})$/.exec(path);
+        if (m) return { kind: 'img', src: `https://media.giphy.com/media/${m[1]}/giphy.gif` };
+    }
+    if (host === 'imgur.com' || host === 'i.imgur.com') {
+        const m = /^\/([A-Za-z0-9]{5,10})\.gifv$/.exec(path);
+        if (m) return { kind: 'video', src: `https://i.imgur.com/${m[1]}.mp4` };
+    }
+    if (/\.(gif|webp|apng)$/i.test(path)) return { kind: 'img', src: link };
+    return null;
+}
+
+const tenorCache = new Map<string, Promise<string | null>>();
+function resolveTenor(link: string): Promise<string | null> {
+    let p = tenorCache.get(link);
+    if (!p) { p = api.resolveGifLink(link).then(r => r.src).catch(() => null); tenorCache.set(link, p); }
+    return p;
+}
+
+/** A GIF shown in the message. Clicking it opens the original link. If it cannot load, nothing is shown. */
+export function GifEmbed({ source, link }: { source: GifSource; link: string }) {
+    const [src, setSrc] = useState<string | null>(source.kind === 'tenor' ? null : source.src);
+    const [failed, setFailed] = useState(false);
+    useEffect(() => {
+        if (source.kind !== 'tenor') return;
+        let alive = true;
+        resolveTenor(source.link).then(s => { if (!alive) return; if (s) setSrc(s); else setFailed(true); });
+        return () => { alive = false; };
+    }, [source]);
+    if (failed || !src) return null;
+    return (
+        <a className="gif-embed" href={link} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>
+            {source.kind === 'video'
+                ? <video className="msg-gif" src={src} autoPlay loop muted playsInline onError={() => setFailed(true)} />
+                : <img className="msg-gif" src={src} alt="GIF" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />}
+        </a>
+    );
 }
 
 /** A YouTube card: picture first, the real player (with sound) after one click. */
@@ -109,7 +163,16 @@ export default function RichText({ content }: { content: string }) {
     }
     if (last < content.length) parts.push(content.slice(last));
 
-    const firstYouTube = parts.map(p => (typeof p === 'string' ? null : parseYouTube(p.href))).find(Boolean) ?? null;
+    // One player or GIF per message: the first link that has one
+    let firstYouTube: { id: string; start: number } | null = null;
+    let firstGif: { source: GifSource; link: string } | null = null;
+    for (const p of parts) {
+        if (typeof p === 'string') continue;
+        const yt = parseYouTube(p.href);
+        if (yt) { firstYouTube = yt; break; }
+        const gif = parseGif(p.href);
+        if (gif) { firstGif = { source: gif, link: p.href }; break; }
+    }
 
     return (
         <>
@@ -119,6 +182,7 @@ export default function RichText({ content }: { content: string }) {
                     : <a key={i} className="msg-link" href={p.href} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>{p.href}</a>)}
             </div>
             {firstYouTube && <YouTubeCard id={firstYouTube.id} start={firstYouTube.start} />}
+            {firstGif && <GifEmbed source={firstGif.source} link={firstGif.link} />}
         </>
     );
 }

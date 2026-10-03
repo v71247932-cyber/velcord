@@ -248,6 +248,34 @@ async function handleGifRemove(request: Request, env: Env, id: string): Promise<
   return json({ success: true });
 }
 
+// --- GIF behind a link ---
+// A Tenor link is a web page, not a picture. The page names the real GIF in its og:image tag, so we read
+// that. Only tenor.com/view/<slug>-<id> pages are fetched, built here from a checked slug, so this cannot
+// be used to reach any other address.
+async function handleGifLink(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const m = /^\/view\/([a-z0-9-]{1,200})$/i.exec((() => { try { return new URL(url.searchParams.get('url') || '').pathname; } catch { return ''; } })());
+  let host = '';
+  try { host = new URL(url.searchParams.get('url') || '').hostname.replace(/^www\./, ''); } catch { /* handled below */ }
+  if (host !== 'tenor.com' || !m || !/-\d{6,25}$/.test(m[1])) return err('Not a Tenor link', 400);
+  try {
+    const res = await fetch(`https://tenor.com/view/${m[1]}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36', 'Accept': 'text/html' },
+      signal: AbortSignal.timeout(7000),
+    });
+    if (!res.ok) return err('Link not found', 404);
+    const html = (await res.text()).slice(0, 600_000);
+    const og = (prop: string) => new RegExp(`<meta[^>]+property=["']${prop}["'][^>]+content=["']([^"']+)["']`, 'i').exec(html)?.[1];
+    const src = og('og:image');
+    if (!src || !/^https:\/\/media\d*\.tenor\.(com|co)\/[^\s"'<>]+$/i.test(src)) return err('No GIF found', 404);
+    return new Response(JSON.stringify({ src, width: parseInt(og('og:image:width') || '0') || null, height: parseInt(og('og:image:height') || '0') || null }), {
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'private, max-age=86400', ...CORS },
+    });
+  } catch {
+    return err('Could not load the link', 502);
+  }
+}
+
 // --- Avatars ---
 // Pictures are stored as data URLs. API responses never carry them: queries return a short
 // version token and the client loads /api/avatars/<id>?v=<token>, which the browser caches.
@@ -1238,6 +1266,12 @@ export default {
       if (path === '/api/system/notify' && request.method === 'POST') return handleSystemNotify(request, env);
       if (path === '/api/system/status' && request.method === 'POST') return handleSystemStatus(request, env);
       if (path === '/api/system/videos' && request.method === 'POST') return handleSystemVideos(request, env);
+
+      // GIF behind a Tenor link
+      if (path === '/api/gif-link' && request.method === 'GET') {
+        if (!(await getAuth(request, env))) return err('Unauthorized', 401);
+        return handleGifLink(request);
+      }
 
       // Personal GIF list
       if (path === '/api/gifs' && request.method === 'POST') return handleGifUpload(request, env);

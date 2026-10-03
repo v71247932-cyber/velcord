@@ -100,6 +100,8 @@ export const api = {
     completeVideo: (id: string) =>
         request<{ id: string; expiresAt: number }>('POST', `/api/videos/${id}/complete`, {}),
 
+    resolveGifLink: (link: string) => request<{ src: string; width: number | null; height: number | null }>('GET', `/api/gif-link?url=${encodeURIComponent(link)}`),
+
     getGifs: () => request<{ max: number; gifs: GifItem[] }>('GET', '/api/gifs'),
 
     uploadGif: async (file: File) => {
