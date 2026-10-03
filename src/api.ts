@@ -108,6 +108,9 @@ export interface FriendUser {
     avatarColor: string;
     avatarUrl?: string;
     online?: boolean;
+    unread?: number;
+    lastUnreadId?: number;
+    preview?: string | null;
     friendshipId: number;
 }
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../AuthContext';
 import { api } from '../api';
 import type { FriendUser, FriendsData, Group } from '../api';
@@ -7,6 +7,7 @@ import FriendsPanel from './FriendsPanel';
 import ChatPanel from './ChatPanel';
 import GroupChatPanel from './GroupChatPanel';
 import { useCall } from '../CallContext';
+import { askNotificationPermissionOnFirstClick, notify, setBadge, isDesktopApp, INSTALL_COMMAND } from '../notify';
 import { PhoneIcon, UsersIcon, PlusIcon } from '../components/Icons';
 import ProfileCard from '../components/ProfileCard';
 import GroupMembersPanel from '../components/GroupMembersPanel';
@@ -29,6 +30,30 @@ export default function MainLayout() {
     const [editUsername, setEditUsername] = useState(user?.username || '');
     const [updatingProfile, setUpdatingProfile] = useState(false);
 
+    const viewRef = useRef(view);
+    viewRef.current = view;
+    const lastUnreadRef = useRef<Map<number, number> | null>(null);
+    const openDMRef = useRef<(f: FriendUser) => void>(() => {});
+    const [copied, setCopied] = useState(false);
+
+    // Notify about new direct messages (and show the unread total on the dock/taskbar icon)
+    const handleUnread = (friends: FriendUser[]) => {
+        const prev = lastUnreadRef.current;
+        const next = new Map(friends.map(f => [f.id, f.lastUnreadId || 0]));
+        if (prev) {
+            for (const f of friends) {
+                if ((f.lastUnreadId || 0) <= (prev.get(f.id) ?? 0)) continue;
+                const v = viewRef.current;
+                const watching = document.hasFocus() && v.type === 'dm' && v.friend.id === f.id;
+                if (!watching) notify(f.username, f.preview || 'New message', { tag: `dm-${f.id}`, onClick: () => openDMRef.current(f) });
+            }
+        }
+        lastUnreadRef.current = next;
+        setBadge(friends.reduce((n, f) => n + (f.unread || 0), 0));
+    };
+
+    useEffect(() => { askNotificationPermissionOnFirstClick(); }, []);
+
     const load = async () => {
         try {
             const [f, g] = await Promise.all([
@@ -36,6 +61,7 @@ export default function MainLayout() {
                 api.getGroups()
             ]);
             setFriendsData(f);
+            handleUnread(f.friends);
             setGroups(g);
         } catch { /* noop */ }
     };
@@ -157,6 +183,7 @@ export default function MainLayout() {
         }
     }
 
+    openDMRef.current = openDM;
     const pendingCount = friendsData.pendingReceived.length;
     const currentFriend = view.type === 'dm' ? view.friend : null;
     const currentGroup = view.type === 'group' ? view.group : null;
@@ -243,6 +270,9 @@ export default function MainLayout() {
                             <Avatar name={f.username} color={f.avatarColor} src={f.avatarUrl} size="sm" status={f.online ? 'online' : 'offline'} />
                             <div className="sidebar-user-details">
                                 <span className="dm-name">{f.username}</span>
+                                {(f.unread || 0) > 0 && currentFriend?.id !== f.id && (
+                                    <span className="unread-badge">{(f.unread || 0) > 99 ? '99+' : f.unread}</span>
+                                )}
                             </div>
                         </div>
                     ))}
@@ -369,6 +399,27 @@ export default function MainLayout() {
                                     </button>
                                 )}
                             </div>
+
+                            {isDesktopApp() ? (
+                                <div className="desktop-install">
+                                    <div className="desktop-install-title">Desktop app</div>
+                                    <p>You are using the Velcord desktop app.</p>
+                                    <button className="avatar-btn avatar-btn-secondary" style={{ color: 'var(--text-primary)' }} onClick={() => window.velcordDesktop?.checkPermissions()}>
+                                        Check permissions
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="desktop-install">
+                                    <div className="desktop-install-title">Desktop app</div>
+                                    <p>Install Velcord on your Mac or Linux computer. Paste this in a terminal:</p>
+                                    <div className="desktop-install-cmd">
+                                        <code>{INSTALL_COMMAND}</code>
+                                        <button onClick={() => {
+                                            navigator.clipboard?.writeText(INSTALL_COMMAND).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1800); }).catch(() => {});
+                                        }}>{copied ? 'Copied' : 'Copy'}</button>
+                                    </div>
+                                </div>
+                            )}
 
                             <form onSubmit={handleUpdateProfile} className="profile-form">
                                 <div className="form-group">

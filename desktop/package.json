@@ -1,0 +1,8 @@
+{
+  "name": "velcord-desktop",
+  "productName": "Velcord",
+  "version": "1.0.0",
+  "description": "Velcord desktop app",
+  "main": "main.js",
+  "private": true
+}

@@ -174,6 +174,12 @@ async function handleUpdateProfile(request: Request, env: Env): Promise<Response
   return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: user.avatar_url });
 }
 
+function previewOf(content: string | null): string | null {
+  if (!content) return null;
+  if (/^\[img:[a-f0-9]{32}\]$/.test(content)) return 'Sent an image';
+  return content.length > 120 ? content.slice(0, 117) + '...' : content;
+}
+
 const ONLINE_WINDOW = 20; // seconds since the last heartbeat
 function isOnline(lastSeen: number | null): boolean {
   return !!lastSeen && Math.floor(Date.now() / 1000) - lastSeen < ONLINE_WINDOW;
@@ -192,11 +198,14 @@ async function handleGetFriends(request: Request, env: Env): Promise<Response> {
   // Accepted friends
   const friends = await env.DB.prepare(`
     SELECT u.id, u.username, u.avatar_color, u.avatar_url, u.last_seen, f.id as friendship_id,
-           CASE WHEN f.requester_id = ? THEN 'sent' ELSE 'received' END as direction
+           CASE WHEN f.requester_id = ? THEN 'sent' ELSE 'received' END as direction,
+           (SELECT COUNT(*) FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL) as unread,
+           (SELECT MAX(dm.id) FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL) as last_unread_id,
+           (SELECT dm.content FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL ORDER BY dm.id DESC LIMIT 1) as preview
     FROM friendships f
     JOIN users u ON u.id = CASE WHEN f.requester_id = ? THEN f.addressee_id ELSE f.requester_id END
     WHERE (f.requester_id = ? OR f.addressee_id = ?) AND f.status = 'accepted'
-  `).bind(auth.userId, auth.userId, auth.userId, auth.userId).all();
+  `).bind(auth.userId, auth.userId, auth.userId, auth.userId, auth.userId, auth.userId, auth.userId).all();
 
   // Pending sent
   const sent = await env.DB.prepare(`
@@ -215,7 +224,7 @@ async function handleGetFriends(request: Request, env: Env): Promise<Response> {
   `).bind(auth.userId).all();
 
   return json({
-    friends: friends.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: r.avatar_url, online: isOnline(r.last_seen), friendshipId: r.friendship_id })),
+    friends: friends.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: r.avatar_url, online: isOnline(r.last_seen), unread: r.unread || 0, lastUnreadId: r.last_unread_id || 0, preview: previewOf(r.preview), friendshipId: r.friendship_id })),
     pendingSent: sent.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: r.avatar_url, online: isOnline(r.last_seen), friendshipId: r.friendship_id })),
     pendingReceived: received.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: r.avatar_url, online: isOnline(r.last_seen), friendshipId: r.friendship_id })),
   });
