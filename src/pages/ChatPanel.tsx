@@ -5,7 +5,7 @@ import { useAuth } from '../AuthContext';
 import Avatar from '../components/Avatar';
 import VerifiedBadge from '../components/VerifiedBadge';
 import { MessageContent, Ticks } from '../components/MessageContent';
-import { useAttach } from '../useAttach';
+import { useAttach, useDropZone } from '../useAttach';
 import { useChat } from '../useChat';
 import { TypingLine, useTypingNames, useTypingPing } from '../typing';
 
@@ -65,6 +65,7 @@ export default function ChatPanel({ friend }: ChatPanelProps) {
     }
 
     const { uploading, progress, label, attach: sendImage, cancel: cancelUpload } = useAttach(send);
+    const { dragging, zoneProps } = useDropZone(sendImage, !friend.verified);
 
     function handlePaste(e: React.ClipboardEvent) {
         const file = Array.from(e.clipboardData.files).find(f => f.type.startsWith('image/') || f.type.startsWith('video/'));
@@ -142,7 +143,8 @@ export default function ChatPanel({ friend }: ChatPanelProps) {
     });
 
     return (
-        <div className="chat-panel">
+        <div className="chat-panel" {...zoneProps}>
+            {dragging && <div className="drop-overlay">Drop pictures or videos to send them</div>}
             <div className="messages-area">
                 {messages.length === 0 && (
                     <div className="empty-state" style={{ flex: 1 }}>

@@ -1911,3 +1911,13 @@ html.desktop-app .viewer { top: 28px; }
 .friend-item-link { cursor: pointer; }
 .friend-item-link:focus-visible { outline: 2px solid rgba(110,122,255,0.85); outline-offset: -2px; }
 .friend-item-link .friend-actions { cursor: default; }
+
+/* ---- Drag a picture or clip onto the chat ---- */
+.chat-panel { position: relative; }
+.drop-overlay {
+  position: absolute; inset: 8px; z-index: 30; pointer-events: none;
+  display: flex; align-items: center; justify-content: center; text-align: center; padding: 20px;
+  border: 2px dashed var(--blurple); border-radius: 14px;
+  background: rgba(88, 101, 242, 0.16); backdrop-filter: blur(2px);
+  color: #fff; font-size: 17px; font-weight: 700; text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+}
