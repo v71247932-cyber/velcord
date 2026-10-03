@@ -156,6 +156,11 @@ if [ "$PLATFORM" = "darwin" ]; then
     osascript -e 'tell application "Velcord" to quit' >/dev/null 2>&1 || true
     sleep 2
   fi
+  LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+  [ -x "$LSREGISTER" ] || LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister"
+  # Forget any earlier install first. macOS remembers the minimum macOS of the old copy
+  # (for example from a newer Electron) and would refuse to open the new one.
+  [ -x "$LSREGISTER" ] && "$LSREGISTER" -u "$APP" >/dev/null 2>&1 || true
   rm -rf "$APP"
   mv "$TMP/electron/Electron.app" "$APP"
   mkdir -p "$APP/Contents/Resources/app"
@@ -178,10 +183,15 @@ if [ "$PLATFORM" = "darwin" ]; then
   if command -v codesign >/dev/null 2>&1; then
     codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || warn "Could not sign the app locally. Permissions may not work."
   fi
+  touch "$APP"
+  [ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$APP" >/dev/null 2>&1 || true
   ok "installed"
 
   step "Opening Velcord (macOS will now ask for notifications, microphone and screen recording)"
-  open "$APP"
+  if ! open "$APP" 2>/dev/null; then
+    warn "macOS would not open the app the normal way, starting it directly."
+    nohup "$APP/Contents/MacOS/Electron" >/dev/null 2>&1 &
+  fi
   printf '\n%sDone.%s Velcord is in %s\n' "$G" "$N" "$APP"
   printf 'If you decline a permission, enable it later in System Settings > Privacy & Security.\n'
   printf 'To remove it: curl -s %s/uninstall.sh | bash\n' "$BASE"
