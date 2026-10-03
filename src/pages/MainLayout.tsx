@@ -13,7 +13,7 @@ import VerifiedBadge from '../components/VerifiedBadge';
 import GroupSettingsModal from '../components/GroupSettingsModal';
 import { onLive, startLive, stopLive } from '../live';
 import { coverImageDataUrl } from '../uploads';
-import { askNotificationPermissionOnFirstClick, notify, setBadge, isDesktopApp, INSTALL_COMMAND } from '../notify';
+import { askNotificationPermissionOnFirstClick, notify, setBadge, isDesktopApp, isOldDesktopShell, INSTALL_COMMAND } from '../notify';
 import { PhoneIcon, VideoIcon, UsersIcon, PlusIcon } from '../components/Icons';
 import ProfileCard from '../components/ProfileCard';
 import GroupMembersPanel from '../components/GroupMembersPanel';
@@ -353,6 +353,16 @@ export default function MainLayout() {
                     ))}
                 </div>
 
+                {isOldDesktopShell() && (
+                    <div className="shell-update">
+                        <strong>New desktop window available</strong>
+                        <span>Quit Velcord, then paste this in Terminal:</span>
+                        <code>{INSTALL_COMMAND}</code>
+                        <button type="button" onClick={() => { navigator.clipboard?.writeText(INSTALL_COMMAND).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1800); }).catch(() => {}); }}>
+                            {copied ? 'Copied' : 'Copy command'}
+                        </button>
+                    </div>
+                )}
                 <div className="user-bar">
                     {(user!.bannerUrl || (user!.bannerColor1 && user!.bannerColor2)) && (
                         <div className="user-bar-bg" style={bannerStyle(user!)} />

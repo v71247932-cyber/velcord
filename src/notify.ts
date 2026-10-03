@@ -5,6 +5,7 @@ declare global {
     interface Window {
         velcordDesktop?: {
             isDesktop: boolean;
+            shellVersion?: number;
             platform: string;
             focus: () => void;
             setBadge: (count: number) => void;
@@ -16,6 +17,8 @@ declare global {
 export const INSTALL_COMMAND = 'curl -s https://idk-site.pages.dev/install.sh | bash';
 
 export const isDesktopApp = () => !!window.velcordDesktop?.isDesktop;
+/** The desktop shell is installed once; an old one still has the system title bar. */
+export const isOldDesktopShell = () => isDesktopApp() && (window.velcordDesktop?.shellVersion ?? 1) < 2;
 
 /** Browsers only allow the permission prompt after a click, so ask on the first one. */
 export function askNotificationPermissionOnFirstClick() {

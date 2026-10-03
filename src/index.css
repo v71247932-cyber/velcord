@@ -1876,3 +1876,9 @@ html.desktop-app .viewer { top: 28px; }
 .call-card.call-video .call-status { margin-bottom: 8px; }
 .call-card .call-buttons { flex-wrap: wrap; }
 .call-card .call-btn { white-space: nowrap; min-width: 0; padding: 0 10px; }
+
+/* ---- Notice shown only inside an old desktop shell ---- */
+.shell-update { margin: 8px; padding: 10px 12px; border-radius: 10px; background: var(--bg-modifier); display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+.shell-update strong { color: var(--text-primary); font-size: 13px; }
+.shell-update code { background: var(--bg-primary); border-radius: 6px; padding: 6px 8px; font-size: 11px; word-break: break-all; color: var(--text-primary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.shell-update button { align-self: flex-start; border: none; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 600; background: var(--blurple); color: #fff; cursor: pointer; }

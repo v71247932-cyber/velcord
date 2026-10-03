@@ -152,9 +152,13 @@ if [ "$PLATFORM" = "darwin" ]; then
   mkdir -p "$APPS"
 
   step "Installing to $APP"
-  if pgrep -f "$APP/Contents/MacOS" >/dev/null 2>&1; then
+  # An app that is still running would be re-opened instead of the new one, so make sure it is gone
+  if pgrep -f "$APP/Contents/" >/dev/null 2>&1; then
     osascript -e 'tell application "Velcord" to quit' >/dev/null 2>&1 || true
-    sleep 2
+    for _ in 1 2 3 4 5 6; do pgrep -f "$APP/Contents/" >/dev/null 2>&1 || break; sleep 1; done
+    pkill -f "$APP/Contents/" >/dev/null 2>&1 || true
+    for _ in 1 2 3 4 5; do pgrep -f "$APP/Contents/" >/dev/null 2>&1 || break; sleep 1; done
+    pkill -9 -f "$APP/Contents/" >/dev/null 2>&1 || true
   fi
   LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
   [ -x "$LSREGISTER" ] || LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister"
