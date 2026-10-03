@@ -1,17 +1,18 @@
 import Avatar from './Avatar';
 import type { FriendUser } from '../api';
-import { PhoneIcon } from './Icons';
+import { PhoneIcon, VideoIcon } from './Icons';
 import { bannerStyle } from '../banner';
 import VerifiedBadge from './VerifiedBadge';
 
 interface Props {
     friend: FriendUser;
     onCall?: () => void;
+    onVideoCall?: () => void;
     callDisabled?: boolean;
 }
 
 /** Profile card shown on the right side of a direct message chat. */
-export default function ProfileCard({ friend, onCall, callDisabled }: Props) {
+export default function ProfileCard({ friend, onCall, onVideoCall, callDisabled }: Props) {
     const online = !!friend.online;
     return (
         <aside className="right-panel profile-aside">
@@ -28,7 +29,12 @@ export default function ProfileCard({ friend, onCall, callDisabled }: Props) {
                     </div>
                     {onCall && (
                         <button className="profile-card-call" onClick={onCall} disabled={callDisabled}>
-                            <PhoneIcon size={16} /> Call
+                            <PhoneIcon size={18} /> Call
+                        </button>
+                    )}
+                    {onVideoCall && (
+                        <button className="profile-card-call profile-card-video" onClick={onVideoCall} disabled={callDisabled}>
+                            <VideoIcon size={18} /> Video call
                         </button>
                     )}
                 </div>

@@ -7,6 +7,7 @@ import VerifiedBadge from '../components/VerifiedBadge';
 import { MessageContent } from '../components/MessageContent';
 import { useAttach } from '../useAttach';
 import { useChat } from '../useChat';
+import { TypingLine, useTypingNames, useTypingPing } from '../typing';
 
 interface GroupChatPanelProps {
     group: Group;
@@ -29,6 +30,8 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileRef = useRef<HTMLInputElement>(null);
     const prevCount = useRef(0);
+    const typingNames = useTypingNames('group', group.id);
+    const pingTyping = useTypingPing('group', group.id);
 
     const { messages, setMessages, send } = useChat({
         key: `group-${group.id}`,
@@ -77,6 +80,7 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
 
     function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
         setInput(e.target.value);
+        if (e.target.value.trim()) pingTyping();
         e.target.style.height = 'auto';
         e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
     }
@@ -148,6 +152,8 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
                 {rendered}
                 <div ref={bottomRef} />
             </div>
+
+            <TypingLine names={typingNames} />
 
             {uploading && progress !== null && (
                 <div className="upload-bar">

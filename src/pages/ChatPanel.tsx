@@ -7,6 +7,7 @@ import VerifiedBadge from '../components/VerifiedBadge';
 import { MessageContent, Ticks } from '../components/MessageContent';
 import { useAttach } from '../useAttach';
 import { useChat } from '../useChat';
+import { TypingLine, useTypingNames, useTypingPing } from '../typing';
 
 interface ChatPanelProps {
     friend: FriendUser;
@@ -29,6 +30,8 @@ export default function ChatPanel({ friend }: ChatPanelProps) {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileRef = useRef<HTMLInputElement>(null);
     const prevCount = useRef(0);
+    const typingNames = useTypingNames('dm', friend.id);
+    const pingTyping = useTypingPing('dm', friend.id);
 
     const { messages, setMessages, send } = useChat({
         key: `dm-${friend.id}`,
@@ -81,6 +84,7 @@ export default function ChatPanel({ friend }: ChatPanelProps) {
     // Auto-resize textarea
     function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
         setInput(e.target.value);
+        if (e.target.value.trim()) pingTyping();
         e.target.style.height = 'auto';
         e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
     }
@@ -153,6 +157,8 @@ export default function ChatPanel({ friend }: ChatPanelProps) {
                 {rendered}
                 <div ref={bottomRef} />
             </div>
+
+            <TypingLine names={typingNames} />
 
             {uploading && progress !== null && (
                 <div className="upload-bar">

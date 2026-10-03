@@ -14,7 +14,7 @@ import GroupSettingsModal from '../components/GroupSettingsModal';
 import { onLive, startLive, stopLive } from '../live';
 import { coverImageDataUrl } from '../uploads';
 import { askNotificationPermissionOnFirstClick, notify, setBadge, isDesktopApp, INSTALL_COMMAND } from '../notify';
-import { PhoneIcon, UsersIcon, PlusIcon } from '../components/Icons';
+import { PhoneIcon, VideoIcon, UsersIcon, PlusIcon } from '../components/Icons';
 import ProfileCard from '../components/ProfileCard';
 import GroupMembersPanel from '../components/GroupMembersPanel';
 import CreateGroupModal from '../components/CreateGroupModal';
@@ -417,10 +417,20 @@ export default function MainLayout() {
                                             <PhoneIcon size={15} /> Call
                                         </button>
                                     )}
+                                    {isFriend && !live.verified && (
+                                        <button
+                                            className="header-call-btn header-video-btn"
+                                            onClick={() => startCall(live, { video: true })}
+                                            disabled={callPhase !== 'idle'}
+                                            title="Start a video call"
+                                        >
+                                            <VideoIcon size={15} /> Video
+                                        </button>
+                                    )}
                                 </div>
                                 <ChatPanel key={currentFriend.id} friend={live} />
                             </div>
-                            <ProfileCard friend={live} onCall={isFriend && !live.verified ? () => startCall(live) : undefined} callDisabled={callPhase !== 'idle'} />
+                            <ProfileCard friend={live} onCall={isFriend && !live.verified ? () => startCall(live) : undefined} onVideoCall={isFriend && !live.verified ? () => startCall(live, { video: true }) : undefined} callDisabled={callPhase !== 'idle'} />
                         </div>
                     );
                 })()}

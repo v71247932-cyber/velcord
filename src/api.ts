@@ -27,8 +27,12 @@ export const api = {
     me: () => request<User>('GET', '/api/me'),
 
     /** Waits until something new happens for me (message, call, tick), or ~12 s. */
-    wait: (marks: string | null) =>
-        request<{ marks: string }>('GET', marks ? `/api/wait?m=${marks}` : '/api/wait'),
+    wait: (marks: string | null, tmark: string | null) =>
+        request<{ marks: string; tmark: string; typing: TypingEntry[] }>('GET', marks && tmark ? `/api/wait?m=${marks}&t=${tmark}` : '/api/wait'),
+
+    /** Tell the other side that I am typing (to = a friend, group = a group) */
+    typing: (target: { to?: number; group?: number }) =>
+        request<{ ok: boolean }>('POST', '/api/typing', target),
 
     getFriends: () => request<FriendsData>('GET', '/api/friends'),
 
@@ -142,6 +146,13 @@ export interface FriendsData {
     pendingReceived: FriendUser[];
 }
 
+export interface TypingEntry {
+    userId: number;
+    username: string;
+    toId: number | null;
+    groupId: number | null;
+}
+
 export interface GroupMember {
     id: number;
     username: string;
@@ -166,7 +177,7 @@ export interface Message {
 export interface CallSignal {
     id: number;
     from: User;
-    type: 'invite' | 'accept' | 'reject' | 'hangup' | 'desc' | 'ice' | 'share';
+    type: 'invite' | 'accept' | 'reject' | 'hangup' | 'desc' | 'ice' | 'share' | 'cam';
     payload: string | null;
     createdAt: number;
 }

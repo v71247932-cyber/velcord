@@ -88,6 +88,7 @@ async function purgeOldMessages(env: Env) {
     env.DB.prepare(`DELETE FROM group_messages WHERE created_at < unixepoch() - ${MESSAGE_TTL}`),
     env.DB.prepare('DELETE FROM uploads WHERE expires_at <= unixepoch()'),
     env.DB.prepare('DELETE FROM videos WHERE expires_at <= unixepoch()'), // the KV chunks expire by themselves
+    env.DB.prepare('DELETE FROM typing WHERE at < (unixepoch() - 60) * 1000'),
   ]);
 }
 
@@ -483,6 +484,7 @@ async function handleSendMessage(request: Request, env: Env, otherUserId: number
     RETURNING id, created_at
   `).bind(auth.userId, otherUserId, content.trim(), auth.userId, otherUserId, otherUserId, auth.userId).first() as { id: number; created_at: number } | null;
   if (!result) return err('You are not friends with this user yet', 403);
+  await env.DB.prepare('DELETE FROM typing WHERE k = ?').bind(`d:${auth.userId}:${otherUserId}`).run(); // the "typing" line disappears when the message arrives
 
   return json({ id: result.id, content: content.trim(), createdAt: result.created_at, senderId: auth.userId }, 201);
 }
@@ -703,6 +705,7 @@ async function handleSendGroupMessage(request: Request, env: Env, groupId: numbe
     RETURNING id, created_at
   `).bind(groupId, auth.userId, content.trim(), groupId, auth.userId).first() as { id: number; created_at: number } | null;
   if (!result) return err('Not a member of this group', 403);
+  await env.DB.prepare('DELETE FROM typing WHERE k = ?').bind(`g:${auth.userId}:${groupId}`).run();
 
   return json({ id: result.id, content: content.trim(), createdAt: result.created_at, senderId: auth.userId }, 201);
 }
@@ -752,6 +755,15 @@ function ensureSchema(env: Env): Promise<void> {
         )`),
         env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_call_signals_to ON call_signals(to_id, id)'),
         env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_dm_receiver ON direct_messages(receiver_id, id)'),
+        env.DB.prepare(`CREATE TABLE IF NOT EXISTS typing (
+          k TEXT PRIMARY KEY,
+          from_id INTEGER NOT NULL,
+          to_id INTEGER,
+          group_id INTEGER,
+          at INTEGER NOT NULL
+        )`),
+        env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_typing_to ON typing(to_id)'),
+        env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_typing_group ON typing(group_id)'),
       ]);
     })().catch(e => { schemaReady = null; throw e; });
   }
@@ -934,28 +946,73 @@ async function handleGetVideo(request: Request, env: Env, id: string): Promise<R
 // --- Live updates: one request that waits until something new happens for this user ---
 // The app calls this in a loop. It answers at once when a message, a call signal or a tick
 // changed, otherwise after ~12 seconds. This replaces waiting for the next periodic poll.
-async function readMarks(env: Env, me: number): Promise<string> {
+const TYPING_TTL_MS = 5000;
+
+async function readMarks(env: Env, me: number): Promise<{ core: string; ty: number }> {
+  const cutoff = Date.now() - TYPING_TTL_MS;
   const r = await env.DB.prepare(`SELECT
     (SELECT COALESCE(MAX(id), 0) FROM direct_messages WHERE receiver_id = ?) AS dm,
     (SELECT COALESCE(MAX(gm.id), 0) FROM group_messages gm WHERE gm.group_id IN (SELECT group_id FROM group_members WHERE user_id = ?)) AS grp,
     (SELECT COALESCE(MAX(id), 0) FROM call_signals WHERE to_id = ?) AS sig,
-    (SELECT COALESCE(MAX(MAX(COALESCE(delivered_at, 0), COALESCE(read_at, 0))), 0) FROM direct_messages WHERE sender_id = ?) AS st
-  `).bind(me, me, me, me).first() as { dm: number; grp: number; sig: number; st: number };
-  return `${r.dm}.${r.grp}.${r.sig}.${r.st}`;
+    (SELECT COALESCE(MAX(MAX(COALESCE(delivered_at, 0), COALESCE(read_at, 0))), 0) FROM direct_messages WHERE sender_id = ?) AS st,
+    (SELECT COALESCE(MAX(at), 0) FROM typing WHERE at > ? AND from_id != ?
+       AND (to_id = ? OR group_id IN (SELECT group_id FROM group_members WHERE user_id = ?))) AS ty
+  `).bind(me, me, me, me, cutoff, me, me, me).first() as { dm: number; grp: number; sig: number; st: number; ty: number };
+  return { core: `${r.dm}.${r.grp}.${r.sig}.${r.st}`, ty: r.ty };
 }
 
 async function handleWait(request: Request, env: Env): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
-  const known = new URL(request.url).searchParams.get('m');
-  let marks = await readMarks(env, auth.userId);
-  if (!known || !/^\d+\.\d+\.\d+\.\d+$/.test(known) || known !== marks) return json({ marks });
-  for (let i = 0; i < 15; i++) {
-    await new Promise(r => setTimeout(r, 800));
-    marks = await readMarks(env, auth.userId);
-    if (marks !== known) break;
+  const me = auth.userId;
+  const params = new URL(request.url).searchParams;
+  const known = params.get('m');
+  const knownTy = params.get('t');
+
+  const answer = async (cur: { core: string; ty: number }) => {
+    const rows = await env.DB.prepare(`SELECT t.from_id, u.username, t.to_id, t.group_id
+      FROM typing t JOIN users u ON u.id = t.from_id
+      WHERE t.at > ? AND t.from_id != ? AND (t.to_id = ? OR t.group_id IN (SELECT group_id FROM group_members WHERE user_id = ?))`)
+      .bind(Date.now() - TYPING_TTL_MS, me, me, me).all();
+    return json({
+      marks: cur.core,
+      tmark: String(cur.ty),
+      typing: rows.results.map((r: any) => ({ userId: r.from_id, username: r.username, toId: r.to_id, groupId: r.group_id })),
+    });
+  };
+
+  let cur = await readMarks(env, me);
+  const valid = !!known && /^\d+\.\d+\.\d+\.\d+$/.test(known) && !!knownTy && /^\d+$/.test(knownTy);
+  if (!valid || known !== cur.core || knownTy !== String(cur.ty)) return answer(cur);
+  for (let i = 0; i < 20; i++) {
+    await new Promise(r => setTimeout(r, 600));
+    cur = await readMarks(env, me);
+    if (cur.core !== known || String(cur.ty) !== knownTy) break;
   }
-  return json({ marks });
+  return answer(cur);
+}
+
+// Someone is typing: remembered for 5 seconds and pushed to the other side through the wait channel
+async function handleTyping(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const { to, group } = await request.json() as { to?: number; group?: number };
+  const now = Date.now();
+  if (Number.isInteger(to)) {
+    await env.DB.prepare(`INSERT OR REPLACE INTO typing (k, from_id, to_id, group_id, at)
+      SELECT ?, ?, ?, NULL, ?
+      WHERE EXISTS (SELECT 1 FROM friendships WHERE status = 'accepted'
+                    AND ((requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)))`)
+      .bind(`d:${auth.userId}:${to}`, auth.userId, to, now, auth.userId, to, to, auth.userId).run();
+  } else if (Number.isInteger(group)) {
+    await env.DB.prepare(`INSERT OR REPLACE INTO typing (k, from_id, to_id, group_id, at)
+      SELECT ?, ?, NULL, ?, ?
+      WHERE EXISTS (SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?)`)
+      .bind(`g:${auth.userId}:${group}`, auth.userId, group, now, group, auth.userId).run();
+  } else {
+    return err('Missing target');
+  }
+  return json({ ok: true });
 }
 
 // --- Message status (sent / delivered / seen ticks) ---
@@ -971,7 +1028,7 @@ async function handleMessageStatus(request: Request, env: Env, otherUserId: numb
 }
 
 // --- Call signaling (WebRTC offers/answers/ICE relayed through D1) ---
-const SIGNAL_TYPES = ['invite', 'accept', 'reject', 'hangup', 'desc', 'ice', 'share'];
+const SIGNAL_TYPES = ['invite', 'accept', 'reject', 'hangup', 'desc', 'ice', 'share', 'cam'];
 
 async function handleCallSignal(request: Request, env: Env): Promise<Response> {
   const auth = await getAuth(request, env);
@@ -1054,6 +1111,7 @@ export default {
       if (uploadMatch && request.method === 'GET') return handleGetUpload(env, uploadMatch[1]);
 
       if (path === '/api/wait' && request.method === 'GET') return handleWait(request, env);
+      if (path === '/api/typing' && request.method === 'POST') return handleTyping(request, env);
 
       // Official notifications (needs the secret key)
       if (path === '/api/system/notify' && request.method === 'POST') return handleSystemNotify(request, env);

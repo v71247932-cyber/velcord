@@ -41,3 +41,6 @@ export const HashIcon = (p: IconProps) => (
 export const CrownIcon = (p: IconProps) => (
     <Svg {...p}><path d="m4 8 4 4 4-6 4 6 4-4-1.5 10h-13L4 8Z" /></Svg>
 );
+export const VideoIcon = (p: IconProps) => (
+    <Svg {...p}><rect x="2.5" y="6" width="13" height="12" rx="3" /><path d="m15.5 10.5 6-3.5v10l-6-3.5" /></Svg>
+);

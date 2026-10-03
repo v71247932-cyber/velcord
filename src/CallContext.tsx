@@ -12,7 +12,7 @@ type Phase = 'idle' | 'calling' | 'ringing' | 'connecting' | 'active';
 
 interface CallContextValue {
     phase: Phase;
-    startCall: (friend: User) => void;
+    startCall: (friend: User, opts?: { video?: boolean }) => void;
     /** Mic and headphones state, usable inside and outside a call */
     muted: boolean;
     deafened: boolean;
@@ -80,6 +80,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const [seconds, setSeconds] = useState(0);
     const [localSpeaking, setLocalSpeaking] = useState(false);
     const [remoteSpeaking, setRemoteSpeaking] = useState(false);
+    const [localCam, setLocalCam] = useState(false);
+    const [remoteCam, setRemoteCam] = useState(false);
+    const [incomingVideo, setIncomingVideo] = useState(false);
+    const [trackVersion, setTrackVersion] = useState(0);
 
     // Mutable call state lives in refs so the polling loop never sees stale values
     const phaseRef = useRef<Phase>('idle');
@@ -96,7 +100,18 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const ringTimerRef = useRef<number | null>(null);
     const lastIdRef = useRef<number | null>(null);
     const queueRef = useRef<Promise<void>>(Promise.resolve());
-    const videoRef = useRef<HTMLVideoElement>(null);
+    const audioElRef = useRef<HTMLAudioElement>(null);
+    const screenElRef = useRef<HTMLVideoElement>(null);
+    const camElRef = useRef<HTMLVideoElement>(null);
+    const localCamElRef = useRef<HTMLVideoElement>(null);
+    const camRef = useRef<MediaStream | null>(null);
+    const camSenderRef = useRef<RTCRtpSender | null>(null);
+    const camCarrierRef = useRef<MediaStream | null>(null);
+    const screenCarrierRef = useRef<MediaStream | null>(null);
+    // Incoming video arrives as separate streams; signals say which one is the camera and which the screen
+    const remoteVideoStreams = useRef<Map<string, MediaStream>>(new Map());
+    const remoteScreenIdRef = useRef<string | null>(null);
+    const remoteCamIdRef = useRef<string | null>(null);
     const startingShareRef = useRef(false);
     const stopLocalMeterRef = useRef<(() => void) | null>(null);
     const stopRemoteMeterRef = useRef<(() => void) | null>(null);
@@ -123,7 +138,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
         screenSenderRef.current = null;
         startingShareRef.current = false;
         remoteStreamRef.current = new MediaStream();
-        if (videoRef.current) videoRef.current.srcObject = null;
+        camSenderRef.current?.track?.stop();
+        camRef.current?.getTracks().forEach(t => t.stop());
+        camRef.current = null; camSenderRef.current = null; camCarrierRef.current = null; screenCarrierRef.current = null;
+        remoteVideoStreams.current = new Map(); remoteScreenIdRef.current = null; remoteCamIdRef.current = null;
+        for (const el of [audioElRef.current, screenElRef.current, camElRef.current, localCamElRef.current]) if (el) el.srcObject = null;
         pendingIceRef.current = [];
         makingOfferRef.current = false;
         ignoreOfferRef.current = false;
@@ -132,6 +151,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
         setHasMic(true);
         setSharing(false);
         setRemoteSharing(false);
+        setLocalCam(false);
+        setRemoteCam(false);
+        setIncomingVideo(false);
         setAskShare(false);
         setSeconds(0);
         setPhaseBoth('idle');
@@ -146,10 +168,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
         cleanup();
         if (message) setNotice(message);
     }, [cleanup]);
-
-    // Whether the other side is sharing comes from an explicit 'share' signal.
-    // Relying on track mute events showed a black frame when sharing a second time.
-    const updateRemoteSharing = useCallback(() => {}, []);
 
     const createPeerConnection = useCallback((polite: boolean) => {
         politeRef.current = polite;
@@ -175,22 +193,22 @@ export function CallProvider({ children }: { children: ReactNode }) {
         };
 
         pc.ontrack = e => {
-            const stream = remoteStreamRef.current;
-            if (!stream.getTracks().includes(e.track)) stream.addTrack(e.track);
-            if (videoRef.current && videoRef.current.srcObject !== stream) {
-                videoRef.current.srcObject = stream;
-                videoRef.current.play().catch(() => {});
+            if (e.track.kind === 'audio') {
+                const audio = remoteStreamRef.current;
+                if (!audio.getTracks().includes(e.track)) audio.addTrack(e.track);
+                const el = audioElRef.current;
+                if (el && el.srcObject !== audio) { el.srcObject = audio; el.play().catch(() => {}); }
+                if (!stopRemoteMeterRef.current) {
+                    stopRemoteMeterRef.current = watchSpeaking(new MediaStream([e.track]), setRemoteSpeaking);
+                }
+            } else {
+                const st = e.streams[0] ?? new MediaStream([e.track]);
+                remoteVideoStreams.current.set(st.id, st);
+                setTrackVersion(v => v + 1);
             }
-            if (e.track.kind === 'audio' && !stopRemoteMeterRef.current) {
-                stopRemoteMeterRef.current = watchSpeaking(new MediaStream([e.track]), setRemoteSpeaking);
-            }
-            // Ask the browser to keep playback buffering minimal (less delay on the shared screen)
+            // Ask the browser to keep playback buffering minimal (less delay)
             try { (e.receiver as any).jitterBufferTarget = 0; } catch { /* unsupported */ }
             try { (e.receiver as any).playoutDelayHint = 0; } catch { /* unsupported */ }
-            e.track.onmute = updateRemoteSharing;
-            e.track.onunmute = updateRemoteSharing;
-            e.track.onended = updateRemoteSharing;
-            updateRemoteSharing();
         };
 
         pc.onconnectionstatechange = () => {
@@ -198,7 +216,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
             if (pc.connectionState === 'failed') endCall('Connection lost. Both sides may be behind a strict network.');
         };
         return pc;
-    }, [send, endCall, updateRemoteSharing]);
+    }, [send, endCall]);
 
     const flushIce = async (pc: RTCPeerConnection) => {
         const pending = pendingIceRef.current;
@@ -224,6 +242,53 @@ export function CallProvider({ children }: { children: ReactNode }) {
         }
     };
 
+    // The camera is optional too: a call can start with it or get it later with the Camera button.
+    const getCamera = async (): Promise<boolean> => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+                audio: false,
+            });
+            camRef.current = stream;
+            setLocalCam(true);
+            return true;
+        } catch (e: any) {
+            camRef.current = null;
+            setLocalCam(false);
+            setNotice(e?.name === 'NotAllowedError'
+                ? 'Camera permission was denied. Allow it in your browser or system settings and try again.'
+                : e?.name === 'NotFoundError' ? 'No camera found.' : 'Could not access the camera.');
+            return false;
+        }
+    };
+
+    /** Sends the camera to the other side. The video sender is reused when the camera is turned on again. */
+    const publishCamera = useCallback((pc: RTCPeerConnection) => {
+        const stream = camRef.current;
+        const track = stream?.getVideoTracks()[0];
+        if (!stream || !track) return;
+        try { track.contentHint = 'motion'; } catch { /* unsupported */ }
+        track.onended = () => { if (camRef.current === stream) stopCameraRef.current(); }; // unplugged or revoked
+        if (camSenderRef.current) {
+            camSenderRef.current.replaceTrack(track)
+                .then(() => send('cam', { on: true, id: camCarrierRef.current?.id }))
+                .catch(() => {});
+        } else {
+            const carrier = new MediaStream(); // its id tells the viewer which stream is the camera
+            camCarrierRef.current = carrier;
+            const tr = pc.addTransceiver(track, {
+                direction: 'sendonly',
+                streams: [carrier],
+                sendEncodings: [{ maxBitrate: 2_500_000, maxFramerate: 30 }],
+            });
+            camSenderRef.current = tr.sender;
+            // Give the first negotiation a moment so the viewer is ready for frames
+            setTimeout(() => { if (camRef.current === stream) send('cam', { on: true, id: carrier.id }); }, 700);
+        }
+    }, [send]);
+
+    const stopCameraRef = useRef<() => void>(() => {});
+
     const handleSignal = useCallback(async (sig: CallSignal, serverNow: number) => {
         const fromId = sig.from.id;
 
@@ -236,6 +301,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
             }
             peerRef.current = sig.from;
             setPeer(sig.from);
+            try { setIncomingVideo(!!(sig.payload && JSON.parse(sig.payload)?.video)); } catch { setIncomingVideo(false); }
             setPhaseBoth('ringing');
             ringTimerRef.current = window.setTimeout(() => {
                 if (phaseRef.current === 'ringing') endCall('Missed call', false);
@@ -250,7 +316,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 if (phaseRef.current !== 'calling') return;
                 if (ringTimerRef.current) { clearTimeout(ringTimerRef.current); ringTimerRef.current = null; }
                 setPhaseBoth('connecting');
-                createPeerConnection(false); // caller is impolite; adding mic tracks triggers the first offer
+                const pc0 = createPeerConnection(false); // caller is impolite; adding mic tracks triggers the first offer
+                publishCamera(pc0);
                 break;
             }
             case 'reject':
@@ -259,13 +326,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
             case 'hangup':
                 endCall(phaseRef.current === 'ringing' ? 'Missed call' : 'Call ended', false);
                 break;
-            case 'share': {
-                const on = !!(sig.payload && JSON.parse(sig.payload));
-                setRemoteSharing(on);
-                if (on && videoRef.current) {
-                    videoRef.current.srcObject = remoteStreamRef.current;
-                    videoRef.current.play().catch(() => {});
-                }
+            case 'share':
+            case 'cam': {
+                // Older tabs send a bare true/false, newer ones {on, id}
+                const raw = sig.payload ? JSON.parse(sig.payload) : null;
+                const on = typeof raw === 'object' && raw ? !!raw.on : !!raw;
+                const id = typeof raw === 'object' && raw?.id ? String(raw.id) : null;
+                if (sig.type === 'share') { if (id) remoteScreenIdRef.current = id; setRemoteSharing(on); }
+                else { if (id) remoteCamIdRef.current = id; setRemoteCam(on); }
+                setTrackVersion(v => v + 1);
                 break;
             }
             case 'desc': {
@@ -292,7 +361,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 break;
             }
         }
-    }, [createPeerConnection, endCall, send]);
+    }, [createPeerConnection, publishCamera, endCall, send]);
 
     // Poll for incoming signals. Slow while idle, fast during a call.
     useEffect(() => {
@@ -343,7 +412,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         if (incoming) {
             document.title = '📞 Incoming call';
             const who = peerRef.current?.username || 'Someone';
-            if (!document.hasFocus()) toast = notify('Incoming call', `${who} is calling you`, { tag: 'velcord-call', requireInteraction: true });
+            if (!document.hasFocus()) toast = notify(incomingVideo ? 'Incoming video call' : 'Incoming call', `${who} is ${incomingVideo ? 'video ' : ''}calling you`, { tag: 'velcord-call', requireInteraction: true });
         }
 
         return () => {
@@ -351,7 +420,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
             toast?.close();
             document.title = prevTitle;
         };
-    }, [phase]);
+    }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Auto-hide notices
     useEffect(() => {
@@ -377,15 +446,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
         return () => window.removeEventListener('beforeunload', onUnload);
     }, []);
 
-    const startCall = useCallback(async (friend: User) => {
+    const startCall = useCallback(async (friend: User, opts?: { video?: boolean }) => {
         if (phaseRef.current !== 'idle') return;
         await getMic();
-        if (phaseRef.current !== 'idle') return;
+        if (opts?.video) await getCamera();
+        if (phaseRef.current !== 'idle') { camRef.current?.getTracks().forEach(t => t.stop()); camRef.current = null; return; }
         peerRef.current = friend;
         setPeer(friend);
         setPhaseBoth('calling');
         try {
-            await api.callSignal(friend.id, 'invite');
+            await api.callSignal(friend.id, 'invite', opts?.video ? { video: true } : undefined);
         } catch (e: any) {
             endCall(e.message || 'Could not start the call', false);
             return;
@@ -399,9 +469,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
         if (phaseRef.current !== 'ringing') return;
         if (ringTimerRef.current) { clearTimeout(ringTimerRef.current); ringTimerRef.current = null; }
         await getMic();
-        if (phaseRef.current !== 'ringing') { micRef.current?.getTracks().forEach(t => t.stop()); micRef.current = null; return; }
+        if (incomingVideo) await getCamera();
+        if (phaseRef.current !== 'ringing') {
+            micRef.current?.getTracks().forEach(t => t.stop()); micRef.current = null;
+            camRef.current?.getTracks().forEach(t => t.stop()); camRef.current = null;
+            return;
+        }
         setPhaseBoth('connecting');
-        createPeerConnection(true);
+        const pc1 = createPeerConnection(true);
+        publishCamera(pc1);
         await send('accept');
     }
 
@@ -415,7 +491,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         mutedRef.current = muted;
         deafenedRef.current = deafened;
         micRef.current?.getAudioTracks().forEach(t => { t.enabled = !(muted || deafened); });
-        if (videoRef.current) videoRef.current.muted = deafened;
+        if (audioElRef.current) audioElRef.current.muted = deafened;
     }, [muted, deafened, phase]);
 
     function toggleMute() {
@@ -425,6 +501,25 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
     function toggleDeafen() {
         setDeafened(d => !d);
+    }
+
+    function stopCamera() {
+        const sender = camSenderRef.current;
+        const live = sender?.track;
+        sender?.replaceTrack(null).catch(() => {}); // keep the sender for the next time
+        live?.stop();
+        camRef.current?.getTracks().forEach(t => t.stop());
+        camRef.current = null;
+        setLocalCam(false);
+        send('cam', { on: false, id: camCarrierRef.current?.id });
+    }
+    stopCameraRef.current = stopCamera;
+
+    async function toggleCamera() {
+        const pc = pcRef.current;
+        if (!pc) return;
+        if (camRef.current) { stopCamera(); return; }
+        if (await getCamera() && pcRef.current === pc) publishCamera(pc);
     }
 
     async function startScreenShare() {
@@ -448,18 +543,20 @@ export function CallProvider({ children }: { children: ReactNode }) {
             if (screenSenderRef.current) {
                 // Sharing again: reuse the same video sender. Adding a new track made the viewer see black.
                 await screenSenderRef.current.replaceTrack(track);
-                await send('share', true);
+                await send('share', { on: true, id: screenCarrierRef.current?.id });
             } else {
                 const mine = stream;
+                const carrier = new MediaStream(); // its id tells the viewer which stream is the screen
+                screenCarrierRef.current = carrier;
                 const tr = pc.addTransceiver(track, {
                     direction: 'sendonly',
-                    streams: [mine],
+                    streams: [carrier],
                     sendEncodings: [{ maxBitrate: 8_000_000, maxFramerate: 60, scaleResolutionDownBy: 1 }],
                 });
                 screenSenderRef.current = tr.sender;
                 tuneScreenSender(pc, tr.sender);
                 // Give the first negotiation a moment so the viewer is ready for frames
-                setTimeout(() => { if (screenRef.current === mine) send('share', true); }, 700);
+                setTimeout(() => { if (screenRef.current === mine) send('share', { on: true, id: carrier.id }); }, 700);
             }
             setSharing(true);
         } catch (e: any) {
@@ -504,9 +601,24 @@ export function CallProvider({ children }: { children: ReactNode }) {
         screenRef.current?.getTracks().forEach(t => t.stop());
         screenRef.current = null;
         setSharing(false);
-        send('share', false);
+        send('share', { on: false, id: screenCarrierRef.current?.id });
     }
 
+    // Point the video elements at the right streams whenever something changes
+    useEffect(() => {
+        const streams = remoteVideoStreams.current;
+        const assign = (el: HTMLVideoElement | null, stream: MediaStream | undefined) => {
+            if (!el) return;
+            const next = stream ?? null;
+            if ((el.srcObject ?? null) !== next) { el.srcObject = next; if (next) el.play().catch(() => {}); }
+        };
+        const first = streams.values().next().value as MediaStream | undefined; // fallback for older tabs without ids
+        assign(screenElRef.current, remoteScreenIdRef.current ? streams.get(remoteScreenIdRef.current) : (remoteSharing && !remoteCam ? first : undefined));
+        assign(camElRef.current, remoteCamIdRef.current ? streams.get(remoteCamIdRef.current) : undefined);
+        assign(localCamElRef.current, camRef.current ?? undefined);
+    }, [trackVersion, remoteSharing, remoteCam, localCam, phase]);
+
+    const videoMode = localCam || remoteCam;
     const mm = String(Math.floor(seconds / 60)).padStart(2, '0');
     const ss = String(seconds % 60).padStart(2, '0');
     const inCall = phase === 'connecting' || phase === 'active';
@@ -518,13 +630,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
             {notice && <div className="call-toast" onClick={() => setNotice(null)}>{notice}</div>}
 
             {/* Always mounted so the remote audio keeps playing */}
-            <video ref={videoRef} className={remoteSharing && inCall ? 'call-remote-video' : 'call-hidden'} autoPlay playsInline />
+            <audio ref={audioElRef} autoPlay />
+            <video ref={screenElRef} className={remoteSharing && inCall ? 'call-remote-video' : 'call-hidden'} autoPlay playsInline muted />
 
             {phase === 'ringing' && peer && (
                 <div className="call-card call-incoming">
                     <Avatar name={peer.username} color={peer.avatarColor} src={peer.avatarUrl} size="lg" />
                     <div className="call-title">{peer.username}</div>
-                    <div className="call-sub">is calling you…</div>
+                    <div className="call-sub">{incomingVideo ? 'is video calling you…' : 'is calling you…'}</div>
                     <div className="call-buttons">
                         <button className="call-btn call-btn-accept" onClick={acceptCall}>Accept</button>
                         <button className="call-btn call-btn-end" onClick={declineCall}>Decline</button>
@@ -536,7 +649,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 <div className="call-card">
                     <Avatar name={peer.username} color={peer.avatarColor} src={peer.avatarUrl} size="lg" />
                     <div className="call-title">{peer.username}</div>
-                    <div className="call-sub">Calling…</div>
+                    <div className="call-sub">{localCam ? 'Video calling…' : 'Calling…'}</div>
                     <div className="call-buttons">
                         <button className="call-btn call-btn-end" onClick={() => endCall()}>Cancel</button>
                     </div>
@@ -544,12 +657,26 @@ export function CallProvider({ children }: { children: ReactNode }) {
             )}
 
             {inCall && peer && (
-                <div className={`call-card call-active ${remoteSharing ? 'call-with-video' : ''}`}>
+                <div className={`call-card call-active ${remoteSharing ? 'call-with-video' : ''} ${videoMode ? 'call-video' : ''}`}>
                     <div className="call-status">
                         {phase === 'active' ? `${mm}:${ss}` : 'Connecting…'}
                         {remoteSharing && ' · Watching their screen'}
                         {sharing && ' · You are sharing your screen'}
                     </div>
+                    {videoMode ? (
+                        <div className="call-stage">
+                            <div className={`call-stage-main ${remoteSpeaking ? 'speaking' : ''}`}>
+                                <video ref={camElRef} className="call-stage-video" autoPlay playsInline muted style={{ display: remoteCam ? 'block' : 'none' }} />
+                                {!remoteCam && (
+                                    <div className="call-stage-placeholder">
+                                        <Avatar name={peer.username} color={peer.avatarColor} src={peer.avatarUrl} size="xl" />
+                                    </div>
+                                )}
+                                <span className="call-stage-name">{peer.username}</span>
+                            </div>
+                            {localCam && <video ref={localCamElRef} className="call-stage-pip" autoPlay playsInline muted />}
+                        </div>
+                    ) : (
                     <div className="call-participants">
                         <div className={`call-person ${remoteSpeaking ? 'speaking' : ''}`}>
                             <div className="call-avatar-ring">
@@ -564,9 +691,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
                             <span>You{muted || deafened ? ' (muted)' : ''}</span>
                         </div>
                     </div>
+                    )}
                     <div className="call-buttons">
                         <button className={`call-btn ${muted ? 'call-btn-on' : ''}`} onClick={toggleMute} disabled={!hasMic} title={hasMic ? '' : 'No microphone'}>
                             {!hasMic ? 'No mic' : muted ? 'Unmute' : 'Mute'}
+                        </button>
+                        <button className={`call-btn ${localCam ? 'call-btn-on' : ''}`} onClick={toggleCamera} disabled={phase !== 'active'}>
+                            {localCam ? 'Camera off' : 'Camera'}
                         </button>
                         {sharing
                             ? <button className="call-btn call-btn-on" onClick={stopScreenShare}>Stop sharing</button>
