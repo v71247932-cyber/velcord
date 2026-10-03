@@ -3,6 +3,7 @@ import { api } from '../api';
 import type { FriendUser, FriendsData } from '../api';
 import Avatar from '../components/Avatar';
 import { useCall } from '../CallContext';
+import { PhoneIcon, MessageIcon, CloseIcon, UsersIcon } from '../components/Icons';
 
 interface FriendsPanelProps {
     onOpenDM: (friend: FriendUser) => void;
@@ -86,7 +87,7 @@ export default function FriendsPanel({ onOpenDM }: FriendsPanelProps) {
                         )}
                         {!loading && data.friends.length === 0 && (
                             <div className="empty-state">
-                                <div className="empty-icon">⚡</div>
+                                <div className="empty-icon"><UsersIcon size={44} /></div>
                                 <p>No friends yet. Add someone using the <strong>Add Friend</strong> tab!</p>
                             </div>
                         )}
@@ -102,15 +103,15 @@ export default function FriendsPanel({ onOpenDM }: FriendsPanelProps) {
                                         </div>
                                         <div className="friend-actions">
                                             <button className="btn btn-secondary btn-sm" onClick={() => onOpenDM(f)}>
-                                                💬 Message
+                                                <MessageIcon size={15} /> Message
                                             </button>
                                             <button className="btn btn-secondary btn-sm" onClick={() => startCall(f)}
                                                 disabled={callPhase !== 'idle'} title="Start a call">
-                                                📞 Call
+                                                <PhoneIcon size={15} /> Call
                                             </button>
                                             <button className="btn btn-danger btn-sm" onClick={() => handleReject(f.friendshipId)}
                                                 title="Remove friend">
-                                                ✕
+                                                <CloseIcon size={14} />
                                             </button>
                                         </div>
                                     </div>

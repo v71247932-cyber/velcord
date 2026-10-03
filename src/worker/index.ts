@@ -83,7 +83,7 @@ async function getAuth(request: Request, env: Env): Promise<{ userId: number; us
 // --- CORS helpers ---
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+  'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type,Authorization',
 };
 
@@ -398,6 +398,7 @@ async function handleGetGroups(request: Request, env: Env): Promise<Response> {
     name: g.name,
     ownerId: g.owner_id,
     createdAt: g.created_at,
+    avatarUrl: g.avatar_url ?? null,
     memberCount: g.memberCount
   })));
 }
@@ -424,6 +425,52 @@ async function handleGroupMembers(request: Request, env: Env, groupId: number): 
     online: r.id === auth.userId || isOnline(r.last_seen),
     isOwner: r.id === r.owner_id,
   })));
+}
+
+function validAvatar(v: unknown): boolean {
+  return v === null || (typeof v === 'string' && v.length <= 700000 && /^data:image\/(png|jpe?g|webp|gif);base64,/.test(v));
+}
+
+// Any member can change the group photo or name
+async function handleUpdateGroup(request: Request, env: Env, groupId: number): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const isMember = await env.DB.prepare('SELECT id FROM group_members WHERE group_id = ? AND user_id = ?')
+    .bind(groupId, auth.userId).first();
+  if (!isMember) return err('Not a member of this group', 403);
+  const { name, avatarUrl } = await request.json() as { name?: string; avatarUrl?: string | null };
+  if (name !== undefined) {
+    const n = String(name).trim();
+    if (n.length < 1 || n.length > 50) return err('Group name must be 1-50 characters');
+    await env.DB.prepare('UPDATE groups SET name = ? WHERE id = ?').bind(n, groupId).run();
+  }
+  if (avatarUrl !== undefined) {
+    if (!validAvatar(avatarUrl)) return err('Invalid group image');
+    await env.DB.prepare('UPDATE groups SET avatar_url = ? WHERE id = ?').bind(avatarUrl, groupId).run();
+  }
+  return json({ success: true });
+}
+
+// Any member can add their own (accepted) friends to the group
+async function handleAddGroupMembers(request: Request, env: Env, groupId: number): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const isMember = await env.DB.prepare('SELECT id FROM group_members WHERE group_id = ? AND user_id = ?')
+    .bind(groupId, auth.userId).first();
+  if (!isMember) return err('Not a member of this group', 403);
+  const { userIds } = await request.json() as { userIds: number[] };
+  if (!Array.isArray(userIds) || userIds.length === 0 || userIds.length > 50) return err('Select at least one friend');
+  let added = 0;
+  for (const uid of userIds) {
+    if (!Number.isInteger(uid)) continue;
+    const friend = await env.DB.prepare(
+      "SELECT id FROM friendships WHERE status = 'accepted' AND ((requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?))"
+    ).bind(auth.userId, uid, uid, auth.userId).first();
+    if (!friend) continue;
+    const res = await env.DB.prepare('INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)').bind(groupId, uid).run() as any;
+    if (res?.meta?.changes) added++;
+  }
+  return json({ success: true, added });
 }
 
 async function handleDeleteGroup(request: Request, env: Env, groupId: number): Promise<Response> {
@@ -513,6 +560,7 @@ function ensureSchema(env: Env): Promise<void> {
         try { await env.DB.prepare(`ALTER TABLE direct_messages ADD COLUMN ${col} INTEGER`).run(); } catch { /* already exists */ }
       }
       try { await env.DB.prepare('ALTER TABLE users ADD COLUMN last_seen INTEGER').run(); } catch { /* already exists */ }
+      try { await env.DB.prepare('ALTER TABLE groups ADD COLUMN avatar_url TEXT').run(); } catch { /* already exists */ }
       await env.DB.batch([
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS uploads (
           id TEXT PRIMARY KEY,
@@ -699,6 +747,11 @@ export default {
       // Group routes
       if (path === '/api/groups' && request.method === 'POST') return handleCreateGroup(request, env);
       if (path === '/api/groups' && request.method === 'GET') return handleGetGroups(request, env);
+
+      const groupPatchMatch = path.match(/^\/api\/groups\/(\d+)$/);
+      if (groupPatchMatch && request.method === 'PATCH') return handleUpdateGroup(request, env, parseInt(groupPatchMatch[1]));
+      const groupAddMatch = path.match(/^\/api\/groups\/(\d+)\/members$/);
+      if (groupAddMatch && request.method === 'POST') return handleAddGroupMembers(request, env, parseInt(groupAddMatch[1]));
 
       const groupMembersMatch = path.match(/^\/api\/groups\/(\d+)\/members$/);
       if (groupMembersMatch && request.method === 'GET') return handleGroupMembers(request, env, parseInt(groupMembersMatch[1]));

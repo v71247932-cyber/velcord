@@ -50,6 +50,12 @@ export const api = {
 
     getGroupMembers: (groupId: number) => request<GroupMember[]>('GET', `/api/groups/${groupId}/members`),
 
+    updateGroup: (groupId: number, patch: { name?: string; avatarUrl?: string | null }) =>
+        request<{ success: boolean }>('PATCH', `/api/groups/${groupId}`, patch),
+
+    addGroupMembers: (groupId: number, userIds: number[]) =>
+        request<{ success: boolean; added: number }>('POST', `/api/groups/${groupId}/members`, { userIds }),
+
     getGroups: () => request<Group[]>('GET', '/api/groups'),
 
     createGroup: (name: string, members: number[]) =>
@@ -142,5 +148,6 @@ export interface Group {
     name: string;
     ownerId: number;
     createdAt: number;
+    avatarUrl?: string | null;
     memberCount?: number;
 }

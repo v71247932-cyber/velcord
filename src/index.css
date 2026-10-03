@@ -1515,3 +1515,78 @@ body,
 .user-bar-btn.is-off { color: #f23f43; }
 .user-bar-btn.is-off:hover { background: rgba(242,63,67,0.12); color: #f23f43; }
 .user-bar-leave:hover { color: #f23f43; }
+
+/* ---- Visual polish: line icons instead of emoji, calmer colours ---- */
+.btn, .header-call-btn, .profile-card-call, .group-action { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.btn svg, .header-call-btn svg, .profile-card-call svg, .group-action svg { flex-shrink: 0; opacity: 0.9; }
+.friend-actions .btn-danger {
+  background: var(--bg-accent);
+  color: var(--text-secondary);
+  border: none;
+  box-shadow: none;
+}
+.friend-actions .btn-danger:hover { background: #da373c; color: #fff; }
+.content-header { box-shadow: 0 1px 0 rgba(0,0,0,0.25), 0 2px 8px rgba(0,0,0,0.12); }
+.add-section-btn { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; }
+.add-section-btn:hover { background: var(--bg-hover); }
+.nav-icon-btn { transition: background 0.15s, border-radius 0.15s, color 0.15s; }
+.nav-icon-btn svg { display: block; }
+.empty-icon { color: var(--text-muted); opacity: 0.7; }
+.logo-icon svg { color: #fff; }
+.dm-item { border-radius: 8px; }
+.dm-item .avatar { box-shadow: 0 0 0 1px rgba(255,255,255,0.04); }
+
+/* ---- Group card + members ---- */
+.members-aside { padding: 0; display: flex; flex-direction: column; }
+.group-card {
+  margin: 16px 12px 4px;
+  padding: 20px 16px 16px;
+  background: var(--bg-modifier);
+  border-radius: 12px;
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+}
+.group-card-photo { position: relative; }
+.group-card-photo-edit {
+  position: absolute; right: -2px; bottom: -2px;
+  width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-accent); color: var(--text-primary);
+  border: 3px solid var(--bg-modifier); box-sizing: content-box;
+  cursor: pointer; padding: 0;
+}
+.group-card-photo-edit:hover:not(:disabled) { background: var(--blurple); color: #fff; }
+.group-card-photo-edit:disabled { opacity: 0.6; cursor: wait; }
+.group-card-name { margin-top: 12px; font-size: 18px; font-weight: 800; color: var(--text-primary); word-break: break-word; }
+.group-card-sub { margin-top: 2px; font-size: 12px; color: var(--text-muted); }
+.group-card-actions { margin-top: 14px; width: 100%; display: flex; flex-direction: column; gap: 6px; }
+.group-action {
+  width: 100%; padding: 8px 10px; border: none; border-radius: 6px;
+  background: var(--bg-accent); color: var(--text-primary);
+  font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.group-action:hover:not(:disabled) { background: var(--bg-hover); }
+.group-action-quiet { background: transparent; color: var(--text-muted); font-weight: 500; }
+.group-action-quiet:hover:not(:disabled) { background: var(--bg-accent); color: var(--text-secondary); }
+.members-list { padding: 8px 8px 16px; overflow-y: auto; }
+.member-owner {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+  color: var(--text-muted);
+  border: 1px solid var(--border); border-radius: 999px; padding: 2px 7px;
+}
+.member-owner svg { opacity: 0.8; }
+
+.pick-list { display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow-y: auto; }
+.pick-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.pick-row:hover { background: var(--bg-hover); }
+.pick-row.on { background: rgba(88,101,242,0.16); }
+.pick-name { flex: 1; font-size: 14px; color: var(--text-primary); }
+.pick-check {
+  width: 20px; height: 20px; border-radius: 50%;
+  border: 2px solid var(--text-muted);
+  display: flex; align-items: center; justify-content: center; color: #fff;
+}
+.pick-row.on .pick-check { background: var(--blurple); border-color: var(--blurple); }
+
+.sidebar-section-header { padding: 0 4px 0 8px; margin-bottom: 4px; }
+.sidebar-section-header .sidebar-section-label { display: block !important; }

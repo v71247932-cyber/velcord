@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { IMAGE_TOKEN } from '../uploads';
 import type { Message } from '../api';
+import { ImageIcon } from './Icons';
 
 const BASE = import.meta.env.VITE_API_URL || '';
 
@@ -9,7 +10,7 @@ export function MessageContent({ content }: { content: string }) {
     const m = IMAGE_TOKEN.exec(content);
     if (!m) return <div className="msg-text">{content}</div>;
     const src = `${BASE}/api/uploads/${m[1]}`;
-    if (failed) return <div className="msg-expired">🖼️ Image expired (images are deleted after 2 days)</div>;
+    if (failed) return <div className="msg-expired"><ImageIcon size={15} /> Image expired (deleted after 2 days)</div>;
     return (
         <a href={src} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>
             <img className="msg-image" src={src} alt="attachment" loading="lazy" onError={() => setFailed(true)} />

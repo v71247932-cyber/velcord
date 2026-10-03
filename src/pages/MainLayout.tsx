@@ -7,6 +7,7 @@ import FriendsPanel from './FriendsPanel';
 import ChatPanel from './ChatPanel';
 import GroupChatPanel from './GroupChatPanel';
 import { useCall } from '../CallContext';
+import { PhoneIcon, UsersIcon, PlusIcon } from '../components/Icons';
 import ProfileCard from '../components/ProfileCard';
 import GroupMembersPanel from '../components/GroupMembersPanel';
 import CreateGroupModal from '../components/CreateGroupModal';
@@ -191,7 +192,7 @@ export default function MainLayout() {
                     title="Friends"
                     id="nav-friends"
                 >
-                    ⚡
+                    <UsersIcon size={22} />
                     {pendingCount > 0 ? (
                         <span className="badge">{pendingCount}</span>
                     ) : (
@@ -206,7 +207,7 @@ export default function MainLayout() {
                     {/* Groups Section */}
                     <div className="sidebar-section-header">
                         <span className="sidebar-section-label">GROUPS</span>
-                        <button className="add-section-btn" onClick={() => setShowCreateGroup(true)}>+</button>
+                        <button className="add-section-btn" onClick={() => setShowCreateGroup(true)} title="Create group"><PlusIcon size={16} /></button>
                     </div>
                     {groups.map(g => (
                         <div
@@ -218,7 +219,7 @@ export default function MainLayout() {
                             }}
                             title="Shift+Click to delete"
                         >
-                            <div className="group-icon-sm">#</div>
+                            <Avatar name={g.name} color="#5865f2" src={g.avatarUrl ?? undefined} size="sm" />
                             <span className="dm-name">{g.name}</span>
                         </div>
                     ))}
@@ -283,7 +284,7 @@ export default function MainLayout() {
                 {view.type === 'friends' && (
                     <>
                         <div className="content-header">
-                            <span>⚡</span>
+                            <UsersIcon size={18} />
                             <span>Friends</span>
                         </div>
                         <FriendsPanel onOpenDM={openDM} />
@@ -305,7 +306,7 @@ export default function MainLayout() {
                                             disabled={callPhase !== 'idle'}
                                             title="Start a voice call"
                                         >
-                                            📞 Call
+                                            <PhoneIcon size={15} /> Call
                                         </button>
                                     )}
                                 </div>
@@ -319,12 +320,12 @@ export default function MainLayout() {
                     <div className="chat-split">
                         <div className="chat-main">
                             <div className="content-header">
-                                <div className="group-icon-sm">#</div>
+                                <Avatar name={currentGroup.name} color="#5865f2" src={currentGroup.avatarUrl ?? undefined} size="sm" />
                                 <span>{currentGroup.name}</span>
                             </div>
                             <GroupChatPanel key={currentGroup.id} group={currentGroup} />
                         </div>
-                        <GroupMembersPanel groupId={currentGroup.id} />
+                        <GroupMembersPanel group={currentGroup} friends={friendsData.friends} onGroupChanged={load} />
                     </div>
                 )}
             </main>

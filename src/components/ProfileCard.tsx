@@ -1,5 +1,6 @@
 import Avatar from './Avatar';
 import type { FriendUser } from '../api';
+import { PhoneIcon } from './Icons';
 
 interface Props {
     friend: FriendUser;
@@ -25,7 +26,7 @@ export default function ProfileCard({ friend, onCall, callDisabled }: Props) {
                     </div>
                     {onCall && (
                         <button className="profile-card-call" onClick={onCall} disabled={callDisabled}>
-                            📞 Call
+                            <PhoneIcon size={16} /> Call
                         </button>
                     )}
                 </div>

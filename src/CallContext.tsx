@@ -94,6 +94,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const lastIdRef = useRef<number | null>(null);
     const queueRef = useRef<Promise<void>>(Promise.resolve());
     const videoRef = useRef<HTMLVideoElement>(null);
+    const startingShareRef = useRef(false);
     const stopLocalMeterRef = useRef<(() => void) | null>(null);
     const stopRemoteMeterRef = useRef<(() => void) | null>(null);
 
@@ -114,8 +115,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
         micRef.current?.getTracks().forEach(t => t.stop());
         micRef.current = null;
         screenRef.current?.getTracks().forEach(t => t.stop());
+        screenSenderRef.current?.track?.stop();
         screenRef.current = null;
         screenSenderRef.current = null;
+        startingShareRef.current = false;
         remoteStreamRef.current = new MediaStream();
         if (videoRef.current) videoRef.current.srcObject = null;
         pendingIceRef.current = [];
@@ -431,10 +434,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
     async function startScreenShare() {
         setAskShare(false);
         const pc = pcRef.current;
-        if (!pc) return;
+        if (!pc || startingShareRef.current || screenRef.current) return;
+        startingShareRef.current = true;
+        let stream: MediaStream | null = null;
         try {
             // The browser shows its own picker (screen / window / tab) and asks for permission here
-            const stream = await navigator.mediaDevices.getDisplayMedia({
+            stream = await navigator.mediaDevices.getDisplayMedia({
                 video: { width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 }, frameRate: { ideal: 60, max: 60 } },
                 audio: false,
             });
@@ -442,27 +447,34 @@ export function CallProvider({ children }: { children: ReactNode }) {
             // 'motion' keeps the frame rate high instead of dropping to a slideshow to keep text sharp
             try { track.contentHint = 'motion'; } catch { /* unsupported */ }
             screenRef.current = stream;
-            track.onended = () => stopScreenShare();
+            track.onended = () => stopScreenShare(); // the browser's own "Stop sharing" button
 
             if (screenSenderRef.current) {
                 // Sharing again: reuse the same video sender. Adding a new track made the viewer see black.
                 await screenSenderRef.current.replaceTrack(track);
                 await send('share', true);
             } else {
+                const mine = stream;
                 const tr = pc.addTransceiver(track, {
                     direction: 'sendonly',
-                    streams: [stream],
+                    streams: [mine],
                     sendEncodings: [{ maxBitrate: 8_000_000, maxFramerate: 60, scaleResolutionDownBy: 1 }],
                 });
                 screenSenderRef.current = tr.sender;
                 tuneScreenSender(pc, tr.sender);
                 // Give the first negotiation a moment so the viewer is ready for frames
-                setTimeout(() => { if (screenRef.current === stream) send('share', true); }, 700);
+                setTimeout(() => { if (screenRef.current === mine) send('share', true); }, 700);
             }
             setSharing(true);
         } catch (e: any) {
-            if (e?.name === 'NotAllowedError') setNotice('Screen sharing was cancelled or not allowed.');
+            // Cancelled or failed: make sure nothing keeps capturing and the UI says we are not sharing
+            stream?.getTracks().forEach(t => t.stop());
+            if (screenRef.current === stream) screenRef.current = null;
+            setSharing(false);
+            if (e?.name === 'NotAllowedError' || e?.name === 'AbortError') setNotice('Screen sharing was cancelled.');
             else setNotice(e?.message || 'Could not share the screen.');
+        } finally {
+            startingShareRef.current = false;
         }
     }
 
@@ -489,7 +501,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
 
     function stopScreenShare() {
-        screenSenderRef.current?.replaceTrack(null).catch(() => {}); // keep the sender for the next share
+        const sender = screenSenderRef.current;
+        const live = sender?.track; // stop whatever is being sent, even if refs got out of sync
+        sender?.replaceTrack(null).catch(() => {}); // keep the sender for the next share
+        live?.stop();
         screenRef.current?.getTracks().forEach(t => t.stop());
         screenRef.current = null;
         setSharing(false);
