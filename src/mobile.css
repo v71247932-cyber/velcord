@@ -1,0 +1,107 @@
+/* ======================= Phone layout (also used when installed from Safari) ======================= */
+html { -webkit-text-size-adjust: 100%; }
+body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
+
+/* these only appear on a phone */
+.mobile-actions, .mobile-info-btn { display: none; }
+
+@media (max-width: 768px) {
+  :root { --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px); }
+
+  .app-layout { flex-direction: column; height: 100dvh; }
+
+  /* ---- top bar ---- */
+  .mobile-header {
+    display: flex; flex-shrink: 0;
+    height: calc(52px + var(--sat)); padding: var(--sat) 8px 0 4px; gap: 4px;
+    background: var(--bg-primary); border-bottom: 1px solid var(--border);
+  }
+  .hamburger-btn { width: 44px; height: 44px; justify-content: center; border-radius: 10px; }
+  .hamburger-btn:active { background: var(--bg-hover); }
+  .mobile-title { flex: 1; min-width: 0; font-weight: 700; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-actions { display: flex; gap: 2px; }
+  .mobile-actions button, .mobile-info-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 44px; height: 44px; border: none; border-radius: 10px; background: none; color: var(--text-secondary); cursor: pointer;
+  }
+  .mobile-info-btn { display: flex; }
+  .mobile-actions button:active, .mobile-info-btn:active { background: var(--bg-hover); }
+  .mobile-actions button:disabled { opacity: 0.4; }
+  .mobile-info-btn.on { color: var(--text-primary); background: var(--bg-accent); }
+
+  /* ---- the menu slides in over the page ---- */
+  .nav-sidebar, .channel-sidebar {
+    position: fixed; top: 0; bottom: 0; transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+    padding-top: var(--sat);
+  }
+  .nav-sidebar { left: 0; width: var(--icons-width); z-index: 1000; transform: translateX(-110%); }
+  .channel-sidebar { left: var(--icons-width); width: min(290px, calc(100vw - var(--icons-width) - 24px)); z-index: 1000; transform: translateX(calc(-100% - var(--icons-width) - 10px)); }
+  .app-layout.sidebar-open .nav-sidebar, .app-layout.sidebar-open .channel-sidebar { transform: none; }
+  .nav-sidebar { box-shadow: none; }
+  .channel-sidebar { box-shadow: 6px 0 24px rgba(0,0,0,0.5); }
+  .sidebar-overlay { z-index: 990; }
+  .user-bar { padding-bottom: var(--sab); height: calc(56px + var(--sab)); }
+
+  /* ---- content ---- */
+  .main-content { flex: 1; min-height: 0; width: 100%; }
+  .chat-split { position: relative; }
+  .chat-main { width: 100%; }
+  .chat-panel { height: auto; flex: 1; min-height: 0; }
+  .messages-area { padding: 12px; }
+  .msg-group { max-width: 94%; }
+  .msg-image, .msg-video { max-width: 100%; }
+  .chat-input-area { padding: 0 10px calc(10px + var(--sab)); }
+  .chat-input-wrapper { padding: 8px 10px; gap: 8px; }
+  .official-note { margin: 0 10px calc(10px + var(--sab)); }
+
+  /* iOS zooms into any text box under 16px */
+  input, textarea, select, .chat-input { font-size: 16px; }
+
+  /* profile / members open as a sheet from the right */
+  .right-panel { display: none; }
+  .chat-split.info-open .right-panel {
+    display: block; position: absolute; top: 0; right: 0; bottom: 0; width: min(340px, 100%);
+    z-index: 50; background: var(--bg-secondary); box-shadow: -8px 0 24px rgba(0,0,0,0.5);
+    padding-bottom: var(--sab);
+  }
+  .right-panel.profile-aside { width: min(340px, 100%); }
+
+  /* ---- friends ---- */
+  .friends-tabs { padding: 8px 10px; }
+  .friend-item { flex-wrap: wrap; gap: 10px; }
+  .friend-info { flex: 1; min-width: 0; }
+  .friend-actions { flex-direction: row; width: 100%; gap: 8px; }
+  .friend-actions .btn { flex: 1; min-height: 40px; }
+  .friend-actions .btn-danger { flex: 0 0 48px; }
+  .add-friend-panel { padding: 16px 12px; }
+  .add-friend-form { flex-wrap: nowrap; }
+
+  /* ---- windows ---- */
+  .modal-overlay { align-items: flex-end; padding-bottom: var(--sab); }
+  .modal-content { width: 100%; max-width: 100%; max-height: 92dvh; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  .profile-modal, .crop-modal, .gset { max-width: 100%; width: 100%; }
+  .modal-footer { padding-bottom: calc(14px + var(--sab)); }
+  .btn, .btn-primary, .btn-link, .avatar-btn, .group-action, .call-btn { min-height: 44px; }
+
+  /* ---- calls ---- */
+  .call-card, .call-card.call-video {
+    left: 10px; right: 10px; width: auto; max-width: none;
+    bottom: calc(10px + var(--sab));
+  }
+  .call-remote-video { top: calc(60px + var(--sat)); left: 8px; right: 8px; width: auto; max-height: 38vh; }
+  .call-toast { top: calc(10px + var(--sat)); }
+  .call-buttons { gap: 6px; }
+  .call-btn { flex: 1 1 calc(50% - 6px); font-size: 14px; }
+}
+
+/* the installed app has no browser bars: respect the notch even on wide phones */
+@media (display-mode: standalone) {
+  body { background: var(--bg-primary); }
+}
+
+/* banner buttons reuse the "remove" style, whose text is red: they are normal actions */
+.banner-btn { color: var(--text-primary) !important; }
+@media (max-width: 768px) {
+  .profile-identity .avatar-hint { display: none; } /* the long hint pushed the name up under the banner */
+  .profile-identity { padding-bottom: 14px; }
+}

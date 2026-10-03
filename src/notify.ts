@@ -50,3 +50,10 @@ export function notify(
 export function setBadge(count: number) {
     window.velcordDesktop?.setBadge(count);
 }
+
+export const isMobileDevice = () =>
+    /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+export const isInstalledPwa = () =>
+    window.matchMedia?.('(display-mode: standalone)').matches || (navigator as any).standalone === true;
+export const isIOS = () =>
+    /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));

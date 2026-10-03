@@ -13,7 +13,7 @@ import VerifiedBadge from '../components/VerifiedBadge';
 import GroupSettingsModal from '../components/GroupSettingsModal';
 import { onLive, startLive, stopLive } from '../live';
 import BannerCropModal from '../components/BannerCropModal';
-import { askNotificationPermissionOnFirstClick, notify, setBadge, isDesktopApp, isOldDesktopShell, INSTALL_COMMAND } from '../notify';
+import { askNotificationPermissionOnFirstClick, notify, setBadge, isDesktopApp, isOldDesktopShell, isMobileDevice, isInstalledPwa, isIOS, INSTALL_COMMAND } from '../notify';
 import { PhoneIcon, VideoIcon, UsersIcon, PlusIcon } from '../components/Icons';
 import ProfileCard from '../components/ProfileCard';
 import GroupMembersPanel from '../components/GroupMembersPanel';
@@ -46,6 +46,7 @@ export default function MainLayout() {
     const [bannerC2, setBannerC2] = useState(user?.bannerColor2 || '#eb459e');
     const [previewColors, setPreviewColors] = useState(false);
     const [cropFile, setCropFile] = useState<File | null>(null);
+    const [showInfo, setShowInfo] = useState(false); // phone: profile / members panel
 
     // Notify about new direct messages (and show the unread total on the dock/taskbar icon)
     const handleUnread = (friends: FriendUser[]) => {
@@ -90,12 +91,14 @@ export default function MainLayout() {
     }, []);
 
     function openDM(friend: FriendUser) {
+        setShowInfo(false);
         setView({ type: 'dm', friend });
         setTimeout(load, 1500); // the chat marks messages as seen, so refresh the unread list soon after
         setSidebarOpen(false); // Close on mobile
     }
 
     function openGroup(group: Group) {
+        setShowInfo(false);
         setShowGroupSettings(false);
         setView({ type: 'group', group });
         setSidebarOpen(false); // Close on mobile
@@ -267,7 +270,18 @@ export default function MainLayout() {
                 <button className="hamburger-btn" onClick={() => setSidebarOpen(true)}>
                     ☰
                 </button>
-                <span style={{ fontWeight: 600 }}>{getHeaderTitle()}</span>
+                <span className="mobile-title">{getHeaderTitle()}</span>
+                {view.type === 'dm' && currentFriend && friendsData.friends.some(f => f.id === currentFriend.id) && !currentFriend.verified && (
+                    <div className="mobile-actions">
+                        <button onClick={() => startCall(currentFriend)} disabled={callPhase !== 'idle'} aria-label="Call"><PhoneIcon size={20} /></button>
+                        <button onClick={() => startCall(currentFriend, { video: true })} disabled={callPhase !== 'idle'} aria-label="Video call"><VideoIcon size={20} /></button>
+                    </div>
+                )}
+                {(view.type === 'dm' || view.type === 'group') && (
+                    <button className={`mobile-info-btn ${showInfo ? 'on' : ''}`} onClick={() => setShowInfo(v => !v)} aria-label="Info">
+                        <UsersIcon size={20} />
+                    </button>
+                )}
             </header>
 
             {/* Left navigation icons */}
@@ -413,7 +427,7 @@ export default function MainLayout() {
                     const live = friendsData.friends.find(f => f.id === currentFriend.id) ?? currentFriend;
                     const isFriend = friendsData.friends.some(f => f.id === currentFriend.id);
                     return (
-                        <div className="chat-split">
+                        <div className={`chat-split ${showInfo ? 'info-open' : ''}`}>
                             <div className="chat-main">
                                 <div className="content-header">
                                     <Avatar name={live.username} color={live.avatarColor} src={live.avatarUrl} size="sm" zoomable status={live.online ? 'online' : 'offline'} />
@@ -446,7 +460,7 @@ export default function MainLayout() {
                     );
                 })()}
                 {view.type === 'group' && currentGroup && (
-                    <div className="chat-split">
+                    <div className={`chat-split ${showInfo ? 'info-open' : ''}`}>
                         <div className="chat-main">
                             <div className="content-header">
                                 <div className="header-clickable" onClick={() => setShowGroupSettings(true)} title="Group settings">
@@ -513,7 +527,15 @@ export default function MainLayout() {
                                 )}
                             </div>
 
-                            {!isDesktopApp() && (
+                            {!isDesktopApp() && isMobileDevice() && !isInstalledPwa() && (
+                                <div className="desktop-install">
+                                    <div className="desktop-install-title">Install on your phone</div>
+                                    {isIOS()
+                                        ? <p>In Safari tap the <strong>Share</strong> button, then <strong>Add to Home Screen</strong>. Velcord opens full screen like an app.</p>
+                                        : <p>In Chrome tap the <strong>⋮</strong> menu, then <strong>Add to Home screen</strong> (or <strong>Install app</strong>).</p>}
+                                </div>
+                            )}
+                            {!isDesktopApp() && !isMobileDevice() && (
                                 <div className="desktop-install">
                                     <div className="desktop-install-title">Desktop app</div>
                                     <p>Install Velcord on your Mac or Linux computer. Paste this in a terminal:</p>
