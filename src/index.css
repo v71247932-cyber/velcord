@@ -1892,3 +1892,13 @@ html.desktop-app .viewer { top: 28px; }
 .dm-item.active .dm-item-bg::after { background: linear-gradient(90deg, rgba(18,19,22,0.34), rgba(18,19,22,0.16)); }
 .dm-item.active:has(.dm-item-bg) { box-shadow: 0 0 0 2px rgba(255,255,255,0.35) inset; }
 .dm-item:has(.dm-item-bg) .dm-name { color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.7); }
+
+/* ---- Banner area picker ---- */
+.crop-modal { max-width: 620px; }
+.crop-hint { margin: 0 0 12px; font-size: 13px; color: var(--text-muted); }
+.crop-frame { position: relative; margin: 0 auto; overflow: hidden; border-radius: 12px; background: #0d0e10; cursor: grab; touch-action: none; user-select: none; box-shadow: 0 0 0 2px var(--blurple); }
+.crop-frame:active { cursor: grabbing; }
+.crop-frame img { position: absolute; left: 50%; top: 50%; max-width: none; pointer-events: none; }
+.crop-zoom { display: flex; align-items: center; gap: 12px; margin: 14px auto 0; width: min(540px, 100%); font-size: 13px; color: var(--text-secondary); }
+.crop-zoom input[type=range] { flex: 1; accent-color: var(--blurple); }
+.crop-error { margin-top: 10px; font-size: 13px; color: #f23f43; }

@@ -2,7 +2,8 @@ import { useRef, useState } from 'react';
 import { api } from '../api';
 import type { Group } from '../api';
 import { bannerStyle } from '../banner';
-import { coverImageDataUrl, squareImageDataUrl } from '../uploads';
+import { squareImageDataUrl } from '../uploads';
+import BannerCropModal from './BannerCropModal';
 import Avatar from './Avatar';
 import { CloseIcon } from './Icons';
 import '../group.css';
@@ -37,10 +38,17 @@ export default function GroupSettingsModal({ group, isOwner, onClose, onChanged 
         run(() => api.updateGroup(group.id, { name: n }));
     };
     const pickPicture = (f: File) => run(async () => api.updateGroup(group.id, { avatarUrl: await squareImageDataUrl(f, 256) }));
-    const pickBanner = (f: File) => run(async () => {
-        await api.updateGroup(group.id, { bannerUrl: await coverImageDataUrl(f, 720, 240) });
+    const [cropFile, setCropFile] = useState<File | null>(null);
+    const pickBanner = (f: File) => {
+        if (!f.type.startsWith('image/')) { alert('Please choose an image file'); return; }
+        if (f.size > 10 * 1024 * 1024) { alert('File too large (max 10 MB)'); return; }
+        setCropFile(f); // the owner picks the visible area next
+    };
+    const saveCropped = async (dataUrl: string) => {
+        await api.updateGroup(group.id, { bannerUrl: dataUrl });
         setPreviewColors(false);
-    });
+        setCropFile(null);
+    };
     const saveColors = () => run(async () => { await api.updateGroup(group.id, { bannerColors: [c1, c2] }); setPreviewColors(false); });
     const resetBanner = () => run(async () => { await api.updateGroup(group.id, { bannerUrl: null, bannerColors: null }); setPreviewColors(false); });
 
@@ -105,6 +113,7 @@ export default function GroupSettingsModal({ group, isOwner, onClose, onChanged 
                     <div className="gset-foot"><button className="gset-btn" onClick={onClose}>Close</button></div>
                 </div>
             </div>
+            {cropFile && <BannerCropModal file={cropFile} title="Choose the group banner area" onCancel={() => setCropFile(null)} onConfirm={saveCropped} />}
         </div>
     );
 }

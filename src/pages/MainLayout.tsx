@@ -12,7 +12,7 @@ import { playMessageSound } from '../ringtones';
 import VerifiedBadge from '../components/VerifiedBadge';
 import GroupSettingsModal from '../components/GroupSettingsModal';
 import { onLive, startLive, stopLive } from '../live';
-import { coverImageDataUrl } from '../uploads';
+import BannerCropModal from '../components/BannerCropModal';
 import { askNotificationPermissionOnFirstClick, notify, setBadge, isDesktopApp, isOldDesktopShell, INSTALL_COMMAND } from '../notify';
 import { PhoneIcon, VideoIcon, UsersIcon, PlusIcon } from '../components/Icons';
 import ProfileCard from '../components/ProfileCard';
@@ -45,6 +45,7 @@ export default function MainLayout() {
     const [bannerC1, setBannerC1] = useState(user?.bannerColor1 || '#5865f2');
     const [bannerC2, setBannerC2] = useState(user?.bannerColor2 || '#eb459e');
     const [previewColors, setPreviewColors] = useState(false);
+    const [cropFile, setCropFile] = useState<File | null>(null);
 
     // Notify about new direct messages (and show the unread total on the dock/taskbar icon)
     const handleUnread = (friends: FriendUser[]) => {
@@ -192,16 +193,15 @@ export default function MainLayout() {
         const file = e.target.files?.[0];
         e.target.value = '';
         if (!file) return;
-        setUpdatingProfile(true);
-        try {
-            const dataUrl = await coverImageDataUrl(file, 720, 240);
-            updateUser(await api.updateBanner({ bannerUrl: dataUrl }));
-            setPreviewColors(false);
-        } catch (err: any) {
-            alert(err.message);
-        } finally {
-            setUpdatingProfile(false);
-        }
+        if (!file.type.startsWith('image/')) { alert('Please choose an image file'); return; }
+        if (file.size > 10 * 1024 * 1024) { alert('File too large (max 10 MB)'); return; }
+        setCropFile(file); // the user picks the visible area next
+    }
+
+    async function saveCroppedBanner(dataUrl: string) {
+        updateUser(await api.updateBanner({ bannerUrl: dataUrl }));
+        setPreviewColors(false);
+        setCropFile(null);
     }
 
     async function saveBannerColors() {
@@ -480,6 +480,8 @@ export default function MainLayout() {
                     }}
                 />
             )}
+
+            {cropFile && <BannerCropModal file={cropFile} onCancel={() => setCropFile(null)} onConfirm={saveCroppedBanner} />}
 
             {showProfileMenu && (
                 <div className="modal-overlay" onClick={() => setShowProfileMenu(false)}>
