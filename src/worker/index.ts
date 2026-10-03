@@ -93,7 +93,7 @@ async function purgeOldMessages(env: Env) {
 
 // --- Official "Velcord" account: verified tick, read-only for users, posts notifications ---
 const SYSTEM_NAME = 'Velcord';
-const SYSTEM_RECIPIENTS = ['idk123idk123dasa']; // only these accounts get Velcord in their friend list
+const SYSTEM_RECIPIENTS = ['idk123idk123dasa', 'deram8686']; // only these accounts get Velcord in their friend list
 const isVerified = (username: string | null | undefined) => !!username && username.toLowerCase() === SYSTEM_NAME.toLowerCase();
 const isReservedName = (username: string) => /velcord/i.test(username);
 
@@ -340,7 +340,7 @@ async function handleGetFriends(request: Request, env: Env): Promise<Response> {
     avatarUrl: avatarPath('avatars', r.id, r.avatar_url),
     ...bannerFields(r),
     verified: isVerified(r.username),
-    online: isOnline(r.last_seen), friendshipId: r.friendship_id,
+    online: isVerified(r.username) || isOnline(r.last_seen), friendshipId: r.friendship_id,
   });
   return json({
     friends: friends.results.map((r: any) => ({ ...person(r), unread: r.unread || 0, lastUnreadId: r.last_unread_id || 0, preview: previewOf(r.preview) })),
@@ -559,7 +559,7 @@ async function handleGroupMembers(request: Request, env: Env, groupId: number): 
     username: r.username,
     avatarColor: r.avatar_color,
     avatarUrl: avatarPath('avatars', r.id, r.avatar_url),
-    online: r.id === auth.userId || isOnline(r.last_seen),
+    online: r.id === auth.userId || isVerified(r.username) || isOnline(r.last_seen),
     isOwner: r.id === r.owner_id,
     verified: isVerified(r.username),
   })));
