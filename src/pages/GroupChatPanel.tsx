@@ -180,7 +180,7 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
                 {gifOpen && (
                     <GifPicker
                         onClose={() => setGifOpen(false)}
-                        onPick={id => { setGifOpen(false); send(`[gif:${id}]`).catch((e: any) => alert(e.message || 'Could not send the GIF')); }}
+                        onPick={content => { setGifOpen(false); send(content).catch((e: any) => alert(e.message || 'Could not send the GIF')); }}
                     />
                 )}
                 <div className="chat-input-wrapper">

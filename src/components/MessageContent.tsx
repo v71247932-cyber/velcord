@@ -4,6 +4,7 @@ import type { Message, User } from '../api';
 import { CloseIcon, ImageIcon } from './Icons';
 import Avatar from './Avatar';
 import RichText from './RichText';
+import GifStar from './GifStar';
 
 const BASE = import.meta.env.VITE_API_URL || '';
 
@@ -138,9 +139,12 @@ export function MessageContent({ content, sender, createdAt }: { content: string
         if (failed) return <div className="msg-expired"><ImageIcon size={15} /> This GIF was removed</div>;
         return (
             <>
-                <img className="msg-gif" src={gsrc} alt="GIF" loading="lazy" onError={() => setFailed(true)}
-                    style={open ? { visibility: 'hidden' } : undefined}
-                    onClick={e => { e.stopPropagation(); setFromRect(e.currentTarget.getBoundingClientRect()); setOpen(true); }} />
+                <div className="gif-wrap">
+                    <img className="msg-gif" src={gsrc} alt="GIF" loading="lazy" onError={() => setFailed(true)}
+                        style={open ? { visibility: 'hidden' } : undefined}
+                        onClick={e => { e.stopPropagation(); setFromRect(e.currentTarget.getBoundingClientRect()); setOpen(true); }} />
+                    <GifStar target={{ file: g[1] }} />
+                </div>
                 {open && <ImageViewer src={gsrc} from={fromRect} sender={sender} createdAt={createdAt} onClose={() => setOpen(false)} />}
             </>
         );

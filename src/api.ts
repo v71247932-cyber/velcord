@@ -116,6 +116,10 @@ export const api = {
         return data as GifItem;
     },
 
+    saveGif: (arg: { gifId?: string; url?: string }) => request<GifItem>('POST', '/api/gifs/save', arg),
+
+    gifOrigins: (ids: string[]) => request<Record<string, string | null>>('POST', '/api/gifs/origins', { ids }),
+
     removeGif: (id: string) => request<{ success: boolean }>('DELETE', `/api/gifs/${id}`),
 
     callSignal: (to: number, type: string, payload?: unknown) =>
@@ -177,6 +181,10 @@ export interface GifItem {
     mime: string;
     size: number;
     createdAt: number;
+    /** set when the GIF is a link (nothing stored): the picture's address */
+    url?: string | null;
+    /** the first copy of this GIF; the same for everyone who saved it */
+    origin?: string;
 }
 
 export interface GroupMember {

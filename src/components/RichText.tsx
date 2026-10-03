@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { isMobileDevice } from '../notify';
 import { api } from '../api';
+import GifStar from './GifStar';
 
 const URL_RE = /https?:\/\/[^\s<>"']+/g;
 const TRAILING = /[.,;:!?)\]}'"»]+$/;
@@ -76,11 +77,14 @@ export function GifEmbed({ source, link }: { source: GifSource; link: string }) 
     }, [source]);
     if (failed || !src) return null;
     return (
-        <a className="gif-embed" href={link} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>
-            {source.kind === 'video'
-                ? <video className="msg-gif" src={src} autoPlay loop muted playsInline onError={() => setFailed(true)} />
-                : <img className="msg-gif" src={src} alt="GIF" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />}
-        </a>
+        <div className="gif-wrap">
+            <a className="gif-embed" href={link} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>
+                {source.kind === 'video'
+                    ? <video className="msg-gif" src={src} autoPlay loop muted playsInline onError={() => setFailed(true)} />
+                    : <img className="msg-gif" src={src} alt="GIF" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />}
+            </a>
+            {source.kind !== 'video' && /\.(gif|webp|apng)(\?|$)/i.test(src) && <GifStar target={{ url: src }} />}
+        </div>
     );
 }
 
@@ -174,13 +178,17 @@ export default function RichText({ content }: { content: string }) {
         if (gif) { firstGif = { source: gif, link: p.href }; break; }
     }
 
+    // A message that is nothing but a GIF link shows just the GIF
+    const onlyLink = parts.filter(p => typeof p !== 'string' || p.trim() !== '').length === 1 && parts.some(p => typeof p !== 'string');
+    const hideText = onlyLink && !!firstGif;
+
     return (
         <>
-            <div className="msg-text">
+            {!hideText && <div className="msg-text">
                 {parts.map((p, i) => typeof p === 'string'
                     ? p
                     : <a key={i} className="msg-link" href={p.href} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>{p.href}</a>)}
-            </div>
+            </div>}
             {firstYouTube && <YouTubeCard id={firstYouTube.id} start={firstYouTube.start} />}
             {firstGif && <GifEmbed source={firstGif.source} link={firstGif.link} />}
         </>

@@ -213,15 +213,69 @@ async function handleGifUpload(request: Request, env: Env): Promise<Response> {
   try { name = decodeURIComponent(request.headers.get('X-Name') || '').replace(/\.[a-z0-9]{2,5}$/i, '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 60) || 'GIF'; } catch { /* keep default */ }
   const id = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b => b.toString(16).padStart(2, '0')).join('');
   await env.MEDIA.put(`gif:${id}`, bytes);
-  await env.DB.prepare('INSERT INTO gifs (id, owner_id, name, mime, size) VALUES (?, ?, ?, ?, ?)').bind(id, auth.userId, name, mime, bytes.length).run();
-  return json({ id, name, mime, size: bytes.length }, 201);
+  await env.DB.prepare('INSERT INTO gifs (id, owner_id, name, mime, size, origin) VALUES (?, ?, ?, ?, ?, ?)').bind(id, auth.userId, name, mime, bytes.length, id).run();
+  return json({ id, name, mime, size: bytes.length, origin: id, url: null }, 201);
 }
 
 async function handleGifList(request: Request, env: Env): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
-  const rows = await env.DB.prepare('SELECT id, name, mime, size, created_at FROM gifs WHERE owner_id = ? AND removed_at IS NULL ORDER BY created_at DESC, rowid DESC').bind(auth.userId).all();
-  return json({ max: GIF_PER_USER, gifs: rows.results.map((r: any) => ({ id: r.id, name: r.name, mime: r.mime, size: r.size, createdAt: r.created_at })) });
+  const rows = await env.DB.prepare('SELECT id, name, mime, size, created_at, url, origin FROM gifs WHERE owner_id = ? AND removed_at IS NULL ORDER BY created_at DESC, rowid DESC').bind(auth.userId).all();
+  return json({ max: GIF_PER_USER, gifs: rows.results.map((r: any) => ({ id: r.id, name: r.name, mime: r.mime, size: r.size, createdAt: r.created_at, url: r.url ?? null, origin: r.origin ?? r.id })) });
+}
+
+// Put a GIF that someone else sent into my own list. A GIF from the library is copied, so it stays even if
+// the sender removes theirs. A GIF from a link is saved as its address (nothing is downloaded here).
+async function handleGifSave(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  if (!env.MEDIA) return err('Storage is not configured', 503);
+  const { gifId, url } = await request.json() as { gifId?: string; url?: string };
+
+  const mine = await env.DB.prepare('SELECT COUNT(*) as c FROM gifs WHERE owner_id = ? AND removed_at IS NULL').bind(auth.userId).first() as { c: number };
+  const newId = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b => b.toString(16).padStart(2, '0')).join('');
+
+  if (url !== undefined) {
+    let u: URL;
+    try { u = new URL(url); } catch { return err('Not a GIF link'); }
+    if (u.protocol !== 'https:' || url.length > 600 || !/\.(gif|webp|apng)$/i.test(u.pathname)) return err('Not a GIF link');
+    const have = await env.DB.prepare('SELECT id FROM gifs WHERE owner_id = ? AND url = ? AND removed_at IS NULL').bind(auth.userId, url).first() as { id: string } | null;
+    if (have) return json({ id: have.id, name: 'GIF', mime: 'image/gif', size: 0, url, origin: have.id, createdAt: Math.floor(Date.now() / 1000) });
+    if (mine.c >= GIF_PER_USER) return err(`Your list is full (${GIF_PER_USER} GIFs). Remove one first.`, 429);
+    const name = decodeURIComponent(u.pathname.split('/').pop() || 'GIF').replace(/\.[a-z0-9]{2,5}$/i, '').slice(0, 60) || 'GIF';
+    await env.DB.prepare('INSERT INTO gifs (id, owner_id, name, mime, size, url, origin) VALUES (?, ?, ?, ?, 0, ?, ?)').bind(newId, auth.userId, name, /\.webp$/i.test(u.pathname) ? 'image/webp' : 'image/gif', url, newId).run();
+    return json({ id: newId, name, mime: 'image/gif', size: 0, url, origin: newId, createdAt: Math.floor(Date.now() / 1000) }, 201);
+  }
+
+  if (!gifId || !/^[a-f0-9]{32}$/.test(gifId)) return err('Missing GIF');
+  const src = await env.DB.prepare('SELECT id, name, mime, size, origin, url FROM gifs WHERE id = ?').bind(gifId).first() as { id: string; name: string; mime: string; size: number; origin: string | null; url: string | null } | null;
+  if (!src || src.url) return err('This GIF is no longer available', 404);
+  const origin = src.origin ?? src.id;
+  const have = await env.DB.prepare('SELECT id FROM gifs WHERE owner_id = ? AND origin = ? AND removed_at IS NULL').bind(auth.userId, origin).first() as { id: string } | null;
+  if (have) return json({ id: have.id, name: src.name, mime: src.mime, size: src.size, url: null, origin, createdAt: Math.floor(Date.now() / 1000) });
+  if (mine.c >= GIF_PER_USER) return err(`Your list is full (${GIF_PER_USER} GIFs). Remove one first.`, 429);
+  const pool = await env.DB.prepare('SELECT COALESCE(SUM(size), 0) as s FROM gifs').first() as { s: number };
+  if (pool.s + src.size > GIF_POOL_MAX) return err('GIF storage is full right now.', 507);
+  const buf = await env.MEDIA.get(`gif:${src.id}`, 'arrayBuffer');
+  if (!buf) return err('This GIF is no longer available', 404);
+  await env.MEDIA.put(`gif:${newId}`, buf);
+  await env.DB.prepare('INSERT INTO gifs (id, owner_id, name, mime, size, origin) VALUES (?, ?, ?, ?, ?, ?)').bind(newId, auth.userId, src.name, src.mime, src.size, origin).run();
+  return json({ id: newId, name: src.name, mime: src.mime, size: src.size, url: null, origin, createdAt: Math.floor(Date.now() / 1000) }, 201);
+}
+
+// Which original GIF each id in a message is a copy of (so the star can tell it is already in my list)
+async function handleGifOrigins(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const { ids } = await request.json() as { ids?: string[] };
+  const list = (Array.isArray(ids) ? ids : []).filter(i => typeof i === 'string' && /^[a-f0-9]{32}$/.test(i)).slice(0, 50);
+  const out: Record<string, string | null> = {};
+  for (const i of list) out[i] = null;
+  if (list.length > 0) {
+    const rows = await env.DB.prepare(`SELECT id, origin FROM gifs WHERE id IN (${list.map(() => '?').join(',')})`).bind(...list).all();
+    for (const r of rows.results as { id: string; origin: string | null }[]) out[r.id] = r.origin ?? r.id;
+  }
+  return json(out);
 }
 
 async function handleGifFile(env: Env, id: string): Promise<Response> {
@@ -436,6 +490,7 @@ function previewOf(content: string | null): string | null {
   if (/^\[img:[a-f0-9]{32}\]$/.test(content)) return 'Sent an image';
   if (/^\[vid:[a-f0-9]{32}\]$/.test(content)) return 'Sent a video';
   if (/^\[gif:[a-f0-9]{32}\]$/.test(content)) return 'Sent a GIF';
+  if (/^https:\/\/\S+\.(gif|webp|apng)$/i.test(content.trim()) || /^https:\/\/(www\.)?(tenor\.com\/view|giphy\.com\/gifs)\/\S+$/i.test(content.trim())) return 'Sent a GIF';
   return content.length > 120 ? content.slice(0, 117) + '...' : content;
 }
 
@@ -891,7 +946,9 @@ function ensureSchema(env: Env): Promise<void> {
           mime TEXT NOT NULL,
           size INTEGER NOT NULL,
           created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-          removed_at INTEGER
+          removed_at INTEGER,
+          url TEXT,
+          origin TEXT
         )`),
         env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_gifs_owner ON gifs(owner_id, removed_at)'),
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS call_signals (
@@ -914,6 +971,10 @@ function ensureSchema(env: Env): Promise<void> {
         env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_typing_to ON typing(to_id)'),
         env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_typing_group ON typing(group_id)'),
       ]);
+      // Databases created before GIFs could be saved from others get the two new columns here
+      for (const col of ['url TEXT', 'origin TEXT']) {
+        try { await env.DB.prepare(`ALTER TABLE gifs ADD COLUMN ${col}`).run(); } catch { /* already there */ }
+      }
     })().catch(e => { schemaReady = null; throw e; });
   }
   return schemaReady;
@@ -1276,6 +1337,8 @@ export default {
       // Personal GIF list
       if (path === '/api/gifs' && request.method === 'POST') return handleGifUpload(request, env);
       if (path === '/api/gifs' && request.method === 'GET') return handleGifList(request, env);
+      if (path === '/api/gifs/save' && request.method === 'POST') return handleGifSave(request, env);
+      if (path === '/api/gifs/origins' && request.method === 'POST') return handleGifOrigins(request, env);
       const gifFileMatch = path.match(/^\/api\/gifs\/([a-f0-9]{32})\/file$/);
       if (gifFileMatch && request.method === 'GET') return handleGifFile(env, gifFileMatch[1]);
       const gifMatch = path.match(/^\/api\/gifs\/([a-f0-9]{32})$/);
