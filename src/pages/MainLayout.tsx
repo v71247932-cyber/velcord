@@ -263,20 +263,6 @@ export default function MainLayout() {
 
             {/* Left navigation icons */}
             <nav className="nav-sidebar">
-                <button
-                    className={`nav-icon-btn ${view.type === 'friends' ? 'active' : ''}`}
-                    onClick={() => {
-                        setView({ type: 'friends' });
-                        setSidebarOpen(false);
-                    }}
-                    title="Friends"
-                    id="nav-friends"
-                >
-                    <UsersIcon size={22} />
-                    {pendingCount > 0 && <span className="badge">{pendingCount}</span>}
-                </button>
-
-                <div className="nav-separator" />
 
                 {groups.map(g => (
                     <button
@@ -307,6 +293,16 @@ export default function MainLayout() {
             {/* Channel/DM sidebar */}
             <aside className="channel-sidebar">
                 <div className="dm-list">
+                    <button
+                        className={`friends-row ${view.type === 'friends' ? 'active' : ''}`}
+                        onClick={() => { setView({ type: 'friends' }); setSidebarOpen(false); }}
+                        id="nav-friends"
+                    >
+                        <UsersIcon size={20} />
+                        <span>Friends</span>
+                        {pendingCount > 0 && <span className="friends-row-badge">{pendingCount}</span>}
+                    </button>
+
                     <div className="sidebar-section-label dm-section-label">DIRECT MESSAGES</div>
 
                     {friendsData.friends.length === 0 && (
