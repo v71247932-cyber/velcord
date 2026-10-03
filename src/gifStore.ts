@@ -28,6 +28,9 @@ export const dropRow = (id: string) => set({ gifs: state.gifs.filter(x => x.id !
 
 // A GIF sent from someone's list can be a copy; the origin says which original it is.
 const origins = new Map<string, string | null>();
+const locked = new Set<string>(); // GIFs whose owner does not allow copying them
+/** True when this GIF is protected by its owner (and is not already in my list). */
+export const isProtected = (id: string) => locked.has(id);
 const wanted = new Set<string>();
 let asking = false;
 export function ensureOrigin(id: string) {
@@ -39,7 +42,11 @@ export function ensureOrigin(id: string) {
         const ids = Array.from(wanted).slice(0, 50);
         ids.forEach(i => wanted.delete(i));
         asking = false;
-        try { const r = await api.gifOrigins(ids); for (const i of ids) origins.set(i, r[i] ?? null); }
+        try {
+            const r = await api.gifOrigins(ids);
+            for (const i of ids) origins.set(i, typeof r[i] === 'string' ? r[i] : null);
+            for (const i of (Array.isArray(r.__protected) ? r.__protected : []) as string[]) locked.add(i);
+        }
         catch { for (const i of ids) origins.set(i, null); }
         set({}); // redraw the stars
         if (wanted.size) { const more = Array.from(wanted); wanted.clear(); more.forEach(ensureOrigin); }

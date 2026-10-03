@@ -226,6 +226,15 @@ async function handleGifList(request: Request, env: Env): Promise<Response> {
 
 // Put a GIF that someone else sent into my own list. A GIF from the library is copied, so it stays even if
 // the sender removes theirs. A GIF from a link is saved as its address (nothing is downloaded here).
+// A person can protect their GIFs. Then nobody else can copy them into their own list, whether the GIF is
+// theirs, or a copy they hold of somebody else's (the first uploader decides too).
+async function gifProtectedFor(env: Env, requesterId: number, gifIds: string[]): Promise<boolean> {
+  const ids = Array.from(new Set(gifIds));
+  const row = await env.DB.prepare(`SELECT 1 FROM gifs g JOIN users u ON u.id = g.owner_id
+    WHERE u.gifs_protected = 1 AND g.owner_id != ? AND g.id IN (${ids.map(() => '?').join(',')})`).bind(requesterId, ...ids).first();
+  return !!row;
+}
+
 async function handleGifSave(request: Request, env: Env): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
@@ -253,6 +262,7 @@ async function handleGifSave(request: Request, env: Env): Promise<Response> {
   const origin = src.origin ?? src.id;
   const have = await env.DB.prepare('SELECT id FROM gifs WHERE owner_id = ? AND origin = ? AND removed_at IS NULL').bind(auth.userId, origin).first() as { id: string } | null;
   if (have) return json({ id: have.id, name: src.name, mime: src.mime, size: src.size, url: null, origin, createdAt: Math.floor(Date.now() / 1000) });
+  if (await gifProtectedFor(env, auth.userId, [src.id, origin])) return err('The owner protected this GIF. It cannot be copied.', 403);
   if (mine.c >= GIF_PER_USER) return err(`Your list is full (${GIF_PER_USER} GIFs). Remove one first.`, 429);
   const pool = await env.DB.prepare('SELECT COALESCE(SUM(size), 0) as s FROM gifs').first() as { s: number };
   if (pool.s + src.size > GIF_POOL_MAX) return err('GIF storage is full right now.', 507);
@@ -274,6 +284,12 @@ async function handleGifOrigins(request: Request, env: Env): Promise<Response> {
   if (list.length > 0) {
     const rows = await env.DB.prepare(`SELECT id, origin FROM gifs WHERE id IN (${list.map(() => '?').join(',')})`).bind(...list).all();
     for (const r of rows.results as { id: string; origin: string | null }[]) out[r.id] = r.origin ?? r.id;
+    // Which of them cannot be copied by this person (an extra key, so older pages keep working)
+    const locked: string[] = [];
+    for (const r of rows.results as { id: string; origin: string | null }[]) {
+      if (await gifProtectedFor(env, auth.userId, [r.id, r.origin ?? r.id])) locked.push(r.id);
+    }
+    (out as Record<string, unknown>).__protected = locked;
   }
   return json(out);
 }
@@ -328,6 +344,22 @@ async function handleGifLink(request: Request): Promise<Response> {
   } catch {
     return err('Could not load the link', 502);
   }
+}
+
+// Turns GIF protection on or off for one account and reports how many copies of its GIFs others already hold
+// (needs the secret key)
+async function handleSystemGifProtect(request: Request, env: Env): Promise<Response> {
+  const key = request.headers.get('X-System-Key');
+  if (!env.SYSTEM_KEY || !key || key !== env.SYSTEM_KEY) return err('Not found', 404);
+  const { username, on } = await request.json() as { username?: string; on?: boolean };
+  const u = username ? await env.DB.prepare('SELECT id, username FROM users WHERE username = ?').bind(username).first() as { id: number; username: string } | null : null;
+  if (!u) return err('No such user', 404);
+  if (typeof on === 'boolean') await env.DB.prepare('UPDATE users SET gifs_protected = ? WHERE id = ?').bind(on ? 1 : 0, u.id).run();
+  const state = await env.DB.prepare('SELECT gifs_protected FROM users WHERE id = ?').bind(u.id).first() as { gifs_protected: number };
+  const own = await env.DB.prepare('SELECT COUNT(*) as c FROM gifs WHERE owner_id = ? AND url IS NULL AND removed_at IS NULL').bind(u.id).first() as { c: number };
+  const copies = await env.DB.prepare(`SELECT COUNT(*) as c FROM gifs c WHERE c.owner_id != ? AND c.removed_at IS NULL AND c.url IS NULL
+    AND c.origin IN (SELECT COALESCE(o.origin, o.id) FROM gifs o WHERE o.owner_id = ? AND o.url IS NULL)`).bind(u.id, u.id).first() as { c: number };
+  return json({ user: u.username, protected: !!state.gifs_protected, ownGifs: own.c, copiesInOthersLists: copies.c });
 }
 
 // --- Avatars ---
@@ -419,30 +451,33 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
   if (!username || !password) return err('Username and password are required');
 
   const user = await env.DB.prepare(
-    `SELECT id, username, password_hash, avatar_color, ${AV('users')} as avatar_url, ${BANNER_COLS('users')} FROM users WHERE username = ?`
-  ).bind(username).first() as { id: number; username: string; password_hash: string; avatar_color: string; avatar_url: string | null } | null;
+    `SELECT id, username, password_hash, avatar_color, ${AV('users')} as avatar_url, ${BANNER_COLS('users')}, gifs_protected FROM users WHERE username = ?`
+  ).bind(username).first() as { id: number; username: string; password_hash: string; avatar_color: string; avatar_url: string | null; gifs_protected?: number } | null;
 
   if (!user) return err('Invalid username or password', 401);
   const ok = await verifyPassword(password, user.password_hash);
   if (!ok) return err('Invalid username or password', 401);
 
   const token = await signJWT({ userId: user.id, username: user.username }, env.JWT_SECRET);
-  return json({ token, user: { id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user) } });
+  return json({ token, user: { id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user), gifsProtected: !!user.gifs_protected } });
 }
 
 async function handleMe(request: Request, env: Env): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
-  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV('users')} as avatar_url, ${BANNER_COLS('users')} FROM users WHERE id = ?`)
-    .bind(auth.userId).first() as { id: number; username: string; avatar_color: string; avatar_url: string | null } | null;
+  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV('users')} as avatar_url, ${BANNER_COLS('users')}, gifs_protected FROM users WHERE id = ?`)
+    .bind(auth.userId).first() as { id: number; username: string; avatar_color: string; avatar_url: string | null; gifs_protected?: number } | null;
   if (!user) return err('User not found', 404);
-  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user) });
+  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user), gifsProtected: !!user.gifs_protected });
 }
 
 async function handleUpdateProfile(request: Request, env: Env): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
-  const { username, avatarUrl, bannerUrl, bannerColors } = await request.json() as { username?: string; avatarUrl?: string | null; bannerUrl?: string | null; bannerColors?: [string, string] | null };
+  const { username, avatarUrl, bannerUrl, bannerColors, gifsProtected } = await request.json() as { username?: string; avatarUrl?: string | null; bannerUrl?: string | null; bannerColors?: [string, string] | null; gifsProtected?: boolean };
+  if (gifsProtected !== undefined) {
+    await env.DB.prepare('UPDATE users SET gifs_protected = ? WHERE id = ?').bind(gifsProtected ? 1 : 0, auth.userId).run();
+  }
 
   if (username) {
     if (username.length < 2 || username.length > 32) return err('Username must be 2-32 characters');
@@ -478,11 +513,11 @@ async function handleUpdateProfile(request: Request, env: Env): Promise<Response
     }
   }
 
-  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV('users')} as avatar_url, ${BANNER_COLS('users')} FROM users WHERE id = ?`)
+  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV('users')} as avatar_url, ${BANNER_COLS('users')}, gifs_protected FROM users WHERE id = ?`)
     .bind(auth.userId).first() as any;
 
   if (!user) return err('User not found', 404);
-  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user) });
+  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user), gifsProtected: !!user.gifs_protected });
 }
 
 function previewOf(content: string | null): string | null {
@@ -916,6 +951,7 @@ function ensureSchema(env: Env): Promise<void> {
       }
       try { await env.DB.prepare('ALTER TABLE users ADD COLUMN last_seen INTEGER').run(); } catch { /* already exists */ }
       try { await env.DB.prepare('ALTER TABLE groups ADD COLUMN avatar_url TEXT').run(); } catch { /* already exists */ }
+      try { await env.DB.prepare('ALTER TABLE users ADD COLUMN gifs_protected INTEGER NOT NULL DEFAULT 0').run(); } catch { /* already exists */ }
       for (const col of ['banner_url TEXT', 'banner_c1 TEXT', 'banner_c2 TEXT']) {
         try { await env.DB.prepare(`ALTER TABLE users ADD COLUMN ${col}`).run(); } catch { /* already exists */ }
         try { await env.DB.prepare(`ALTER TABLE groups ADD COLUMN ${col}`).run(); } catch { /* already exists */ }
@@ -1414,6 +1450,7 @@ export default {
       if (path === '/api/system/notify' && request.method === 'POST') return handleSystemNotify(request, env);
       if (path === '/api/system/status' && request.method === 'POST') return handleSystemStatus(request, env);
       if (path === '/api/system/videos' && request.method === 'POST') return handleSystemVideos(request, env);
+      if (path === '/api/system/gif-protect' && request.method === 'POST') return handleSystemGifProtect(request, env);
 
       // GIF behind a Tenor link
       if (path === '/api/gif-link' && request.method === 'GET') {

@@ -51,8 +51,9 @@ export default function MainLayout() {
     const [cropFile, setCropFile] = useState<File | null>(null);
     // A new profile picture is only a draft until "Save Changes": undefined = unchanged, null = remove it
     const [draftAvatar, setDraftAvatar] = useState<string | null | undefined>(undefined);
+    const [draftProtect, setDraftProtect] = useState<boolean | undefined>(undefined); // "protect my GIFs", saved with the rest
     useEffect(() => {
-        if (!showProfileMenu) { setDraftAvatar(undefined); setEditUsername(user?.username || ''); }
+        if (!showProfileMenu) { setDraftAvatar(undefined); setDraftProtect(undefined); setEditUsername(user?.username || ''); }
     }, [showProfileMenu]); // eslint-disable-line react-hooks/exhaustive-deps
     const [showInfo, setShowInfo] = useState(false); // phone: profile / members panel
 
@@ -140,9 +141,10 @@ export default function MainLayout() {
         setUpdatingProfile(true);
         try {
             const nameChanged = editUsername.trim() !== user?.username;
-            const updated = await api.updateProfile(nameChanged ? editUsername.trim() : undefined, draftAvatar);
+            const updated = await api.updateProfile(nameChanged ? editUsername.trim() : undefined, draftAvatar, draftProtect);
             updateUser(updated);
             setDraftAvatar(undefined);
+            setDraftProtect(undefined);
             setShowProfileMenu(false);
         } catch (err: any) {
             alert(err.message);
@@ -575,6 +577,20 @@ export default function MainLayout() {
                                 </div>
                             )}
 
+                            <label className="protect-row">
+                                <input
+                                    type="checkbox"
+                                    checked={draftProtect ?? !!user?.gifsProtected}
+                                    onChange={e => setDraftProtect(e.target.checked === !!user?.gifsProtected ? undefined : e.target.checked)}
+                                    disabled={updatingProfile}
+                                />
+                                <span className="protect-switch" aria-hidden="true" />
+                                <span className="protect-text">
+                                    <strong>Protect my GIFs</strong>
+                                    <small>Nobody else can add your GIFs to their own list.</small>
+                                </span>
+                            </label>
+
                             <div className="banner-editor">
                                 <div className="desktop-install-title">Profile banner</div>
                                 <div className="banner-editor-row">
@@ -610,7 +626,7 @@ export default function MainLayout() {
                                     <button
                                         type="submit"
                                         className="btn-primary"
-                                        disabled={updatingProfile || !editUsername.trim() || (editUsername.trim() === user?.username && draftAvatar === undefined)}
+                                        disabled={updatingProfile || !editUsername.trim() || (editUsername.trim() === user?.username && draftAvatar === undefined && draftProtect === undefined)}
                                     >
                                         {updatingProfile ? 'Saving...' : 'Save Changes'}
                                     </button>

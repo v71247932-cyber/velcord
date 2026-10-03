@@ -118,7 +118,7 @@ export const api = {
 
     saveGif: (arg: { gifId?: string; url?: string }) => request<GifItem>('POST', '/api/gifs/save', arg),
 
-    gifOrigins: (ids: string[]) => request<Record<string, string | null>>('POST', '/api/gifs/origins', { ids }),
+    gifOrigins: (ids: string[]) => request<Record<string, any>>('POST', '/api/gifs/origins', { ids }), // id -> origin; "__protected" lists the ids that cannot be copied
 
     removeGif: (id: string) => request<{ success: boolean }>('DELETE', `/api/gifs/${id}`),
 
@@ -136,14 +136,16 @@ export const api = {
     updateBanner: (patch: { bannerUrl?: string | null; bannerColors?: [string, string] | null }) =>
         request<User>('PATCH', '/api/me', patch),
 
-    updateProfile: (username?: string, avatarUrl?: string | null) =>
-        request<User>('PATCH', '/api/me', { username, avatarUrl }),
+    updateProfile: (username?: string, avatarUrl?: string | null, gifsProtected?: boolean) =>
+        request<User>('PATCH', '/api/me', { username, avatarUrl, gifsProtected }),
 };
 
 export interface User {
     id: number;
     username: string;
     avatarColor: string;
+    /** nobody else can copy this person's GIFs into their own list */
+    gifsProtected?: boolean;
     avatarUrl?: string;
     bannerUrl?: string | null;
     bannerColor1?: string | null;

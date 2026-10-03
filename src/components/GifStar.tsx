@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ensureOrigin, findRow, toggleStar, useGifs } from '../gifStore';
+import './gifProtect.css';
+import { ensureOrigin, findRow, isProtected, toggleStar, useGifs } from '../gifStore';
 import type { StarTarget } from '../gifStore';
 
 /** Star in the corner of a GIF: yellow when it is in my list; click to add it or take it out. */
@@ -9,6 +10,15 @@ export default function GifStar({ target }: { target: StarTarget }) {
     const key = 'file' in target ? target.file : target.url;
     useEffect(() => { if ('file' in target) ensureOrigin(target.file); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
     const starred = !!findRow(target);
+
+    // The owner does not allow copies. A copy made earlier stays in the list and keeps its yellow star.
+    if ('file' in target && !starred && isProtected(target.file)) {
+        return (
+            <span className="gif-star gif-lock" title="The owner protected this GIF: it cannot be copied" aria-label="Protected GIF">
+                <svg width="15" height="15" viewBox="0 0 24 24" strokeWidth="1.9" strokeLinejoin="round" strokeLinecap="round"><rect x="5" y="11" width="14" height="9" rx="2.5" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
+            </span>
+        );
+    }
 
     return (
         <button
