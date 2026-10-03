@@ -32,8 +32,14 @@ function createWindow() {
         minWidth: 900,
         minHeight: 600,
         backgroundColor: '#313338',
-        title: 'Velcord',
+        title: '',
         icon: path.join(__dirname, 'icon.png'),
+        // No title bar text. On macOS the window keeps its rounded corners and the red/yellow/green
+        // buttons sit on top of the page. Elsewhere the window buttons are drawn over the page too.
+        titleBarStyle: 'hidden',
+        ...(IS_MAC
+            ? { trafficLightPosition: { x: 14, y: 8 } }
+            : { titleBarOverlay: { color: '#1e1f22', symbolColor: '#b5bac1', height: 28 } }),
         autoHideMenuBar: true,
         show: false,
         webPreferences: {
@@ -45,6 +51,8 @@ function createWindow() {
         },
     });
 
+    win.setTitle('');
+    win.on('page-title-updated', (e) => e.preventDefault()); // keep the title empty
     win.once('ready-to-show', () => win.show());
     win.loadURL(APP_URL);
 

@@ -98,6 +98,9 @@ export const api = {
     callPoll: (after: number) =>
         request<{ now: number; lastId?: number; signals: CallSignal[] }>('GET', after < 0 ? '/api/calls/poll?init=1' : `/api/calls/poll?after=${after}`),
 
+    updateBanner: (patch: { bannerUrl?: string | null; bannerColors?: [string, string] | null }) =>
+        request<User>('PATCH', '/api/me', patch),
+
     updateProfile: (username?: string, avatarUrl?: string | null) =>
         request<User>('PATCH', '/api/me', { username, avatarUrl }),
 };
@@ -107,6 +110,9 @@ export interface User {
     username: string;
     avatarColor: string;
     avatarUrl?: string;
+    bannerUrl?: string | null;
+    bannerColor1?: string | null;
+    bannerColor2?: string | null;
 }
 
 export interface FriendUser {
@@ -114,6 +120,9 @@ export interface FriendUser {
     username: string;
     avatarColor: string;
     avatarUrl?: string;
+    bannerUrl?: string | null;
+    bannerColor1?: string | null;
+    bannerColor2?: string | null;
     online?: boolean;
     unread?: number;
     lastUnreadId?: number;

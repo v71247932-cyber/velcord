@@ -92,17 +92,18 @@ async function purgeOldMessages(env: Env) {
 // --- Avatars ---
 // Pictures are stored as data URLs. API responses never carry them: queries return a short
 // version token and the client loads /api/avatars/<id>?v=<token>, which the browser caches.
-const AV = (alias: string) =>
-  `CASE WHEN ${alias}.avatar_url IS NULL THEN NULL ELSE length(${alias}.avatar_url) || '-' || substr(${alias}.avatar_url, -12) END`;
+const AV = (alias: string, col = 'avatar_url') =>
+  `CASE WHEN ${alias}.${col} IS NULL THEN NULL ELSE length(${alias}.${col}) || '-' || substr(${alias}.${col}, -12) END`;
 
-function avatarPath(kind: 'avatars' | 'group-avatars', id: number, token: string | null | undefined): string | null {
+function avatarPath(kind: 'avatars' | 'group-avatars' | 'banners', id: number, token: string | null | undefined): string | null {
   return token ? `/api/${kind}/${id}?v=${encodeURIComponent(token)}` : null;
 }
 
-async function handleGetAvatar(env: Env, kind: 'avatars' | 'group-avatars', id: number): Promise<Response> {
-  const table = kind === 'avatars' ? 'users' : 'groups';
-  const row = await env.DB.prepare(`SELECT avatar_url FROM ${table} WHERE id = ?`).bind(id).first() as { avatar_url: string | null } | null;
-  const m = row?.avatar_url ? /^data:(image\/[a-z+.-]+);base64,(.*)$/s.exec(row.avatar_url) : null;
+async function handleGetAvatar(env: Env, kind: 'avatars' | 'group-avatars' | 'banners', id: number): Promise<Response> {
+  const table = kind === 'group-avatars' ? 'groups' : 'users';
+  const col = kind === 'banners' ? 'banner_url' : 'avatar_url';
+  const row = await env.DB.prepare(`SELECT ${col} as pic FROM ${table} WHERE id = ?`).bind(id).first() as { pic: string | null } | null;
+  const m = row?.pic ? /^data:(image\/[a-z+.-]+);base64,(.*)$/s.exec(row.pic) : null;
   if (!m) return new Response('Not found', { status: 404, headers: CORS });
   const bin = atob(m[2]);
   const out = new Uint8Array(bin.length);
@@ -115,6 +116,11 @@ async function handleGetAvatar(env: Env, kind: 'avatars' | 'group-avatars', id: 
       ...CORS,
     },
   });
+}
+
+const BANNER_COLS = (alias: string) => `${AV(alias, 'banner_url')} as banner_url, ${alias}.banner_c1 as banner_c1, ${alias}.banner_c2 as banner_c2`;
+function bannerFields(r: any) {
+  return { bannerUrl: avatarPath('banners', r.id, r.banner_url), bannerColor1: r.banner_c1 ?? null, bannerColor2: r.banner_c2 ?? null };
 }
 
 // --- Auth middleware ---
@@ -171,7 +177,7 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
   if (!username || !password) return err('Username and password are required');
 
   const user = await env.DB.prepare(
-    `SELECT id, username, password_hash, avatar_color, ${AV('users')} as avatar_url FROM users WHERE username = ?`
+    `SELECT id, username, password_hash, avatar_color, ${AV('users')} as avatar_url, ${BANNER_COLS('users')} FROM users WHERE username = ?`
   ).bind(username).first() as { id: number; username: string; password_hash: string; avatar_color: string; avatar_url: string | null } | null;
 
   if (!user) return err('Invalid username or password', 401);
@@ -179,22 +185,22 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
   if (!ok) return err('Invalid username or password', 401);
 
   const token = await signJWT({ userId: user.id, username: user.username }, env.JWT_SECRET);
-  return json({ token, user: { id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url) } });
+  return json({ token, user: { id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user) } });
 }
 
 async function handleMe(request: Request, env: Env): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
-  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV('users')} as avatar_url FROM users WHERE id = ?`)
+  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV('users')} as avatar_url, ${BANNER_COLS('users')} FROM users WHERE id = ?`)
     .bind(auth.userId).first() as { id: number; username: string; avatar_color: string; avatar_url: string | null } | null;
   if (!user) return err('User not found', 404);
-  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url) });
+  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user) });
 }
 
 async function handleUpdateProfile(request: Request, env: Env): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
-  const { username, avatarUrl } = await request.json() as { username?: string; avatarUrl?: string | null };
+  const { username, avatarUrl, bannerUrl, bannerColors } = await request.json() as { username?: string; avatarUrl?: string | null; bannerUrl?: string | null; bannerColors?: [string, string] | null };
 
   if (username) {
     if (username.length < 2 || username.length > 32) return err('Username must be 2-32 characters');
@@ -211,11 +217,29 @@ async function handleUpdateProfile(request: Request, env: Env): Promise<Response
     await env.DB.prepare('UPDATE users SET avatar_url = ? WHERE id = ?').bind(avatarUrl, auth.userId).run();
   }
 
-  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV('users')} as avatar_url FROM users WHERE id = ?`)
-    .bind(auth.userId).first() as { id: number; username: string; avatar_color: string; avatar_url: string | null } | null;
+  // Banner: a picture, or two colours blended into a gradient. Choosing one clears the other.
+  if (bannerUrl !== undefined) {
+    if (bannerUrl !== null && (typeof bannerUrl !== 'string' || !/^data:image\/(png|jpe?g|webp|gif);base64,/.test(bannerUrl) || bannerUrl.length > 900000)) {
+      return err('Invalid banner image');
+    }
+    await env.DB.prepare('UPDATE users SET banner_url = ? WHERE id = ?').bind(bannerUrl, auth.userId).run();
+    if (bannerUrl !== null) await env.DB.prepare('UPDATE users SET banner_c1 = NULL, banner_c2 = NULL WHERE id = ?').bind(auth.userId).run();
+  }
+  if (bannerColors !== undefined) {
+    if (bannerColors === null) {
+      await env.DB.prepare('UPDATE users SET banner_c1 = NULL, banner_c2 = NULL WHERE id = ?').bind(auth.userId).run();
+    } else {
+      const ok = Array.isArray(bannerColors) && bannerColors.length === 2 && bannerColors.every(c => typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c));
+      if (!ok) return err('Invalid banner colours');
+      await env.DB.prepare('UPDATE users SET banner_c1 = ?, banner_c2 = ?, banner_url = NULL WHERE id = ?').bind(bannerColors[0], bannerColors[1], auth.userId).run();
+    }
+  }
+
+  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV('users')} as avatar_url, ${BANNER_COLS('users')} FROM users WHERE id = ?`)
+    .bind(auth.userId).first() as any;
 
   if (!user) return err('User not found', 404);
-  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url) });
+  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user) });
 }
 
 function previewOf(content: string | null): string | null {
@@ -241,7 +265,7 @@ async function handleGetFriends(request: Request, env: Env): Promise<Response> {
     env.DB.prepare('UPDATE direct_messages SET delivered_at = unixepoch() WHERE receiver_id = ? AND delivered_at IS NULL').bind(me),
     env.DB.prepare('UPDATE users SET last_seen = unixepoch() WHERE id = ?').bind(me),
     env.DB.prepare(`
-      SELECT u.id, u.username, u.avatar_color, ${AV('u')} as avatar_url, u.last_seen, f.id as friendship_id,
+      SELECT u.id, u.username, u.avatar_color, ${AV('u')} as avatar_url, ${BANNER_COLS('u')}, u.last_seen, f.id as friendship_id,
              (SELECT COUNT(*) FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL AND ${NOT_EXPIRED('dm.created_at')}) as unread,
              (SELECT MAX(dm.id) FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL AND ${NOT_EXPIRED('dm.created_at')}) as last_unread_id,
              (SELECT dm.content FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL AND ${NOT_EXPIRED('dm.created_at')} ORDER BY dm.id DESC LIMIT 1) as preview
@@ -250,12 +274,12 @@ async function handleGetFriends(request: Request, env: Env): Promise<Response> {
       WHERE (f.requester_id = ? OR f.addressee_id = ?) AND f.status = 'accepted'
     `).bind(me, me, me, me, me, me),
     env.DB.prepare(`
-      SELECT u.id, u.username, u.avatar_color, ${AV('u')} as avatar_url, u.last_seen, f.id as friendship_id
+      SELECT u.id, u.username, u.avatar_color, ${AV('u')} as avatar_url, ${BANNER_COLS('u')}, u.last_seen, f.id as friendship_id
       FROM friendships f JOIN users u ON u.id = f.addressee_id
       WHERE f.requester_id = ? AND f.status = 'pending'
     `).bind(me),
     env.DB.prepare(`
-      SELECT u.id, u.username, u.avatar_color, ${AV('u')} as avatar_url, u.last_seen, f.id as friendship_id
+      SELECT u.id, u.username, u.avatar_color, ${AV('u')} as avatar_url, ${BANNER_COLS('u')}, u.last_seen, f.id as friendship_id
       FROM friendships f JOIN users u ON u.id = f.requester_id
       WHERE f.addressee_id = ? AND f.status = 'pending'
     `).bind(me),
@@ -264,6 +288,7 @@ async function handleGetFriends(request: Request, env: Env): Promise<Response> {
   const person = (r: any) => ({
     id: r.id, username: r.username, avatarColor: r.avatar_color,
     avatarUrl: avatarPath('avatars', r.id, r.avatar_url),
+    ...bannerFields(r),
     online: isOnline(r.last_seen), friendshipId: r.friendship_id,
   });
   return json({
@@ -484,13 +509,13 @@ function validAvatar(v: unknown): boolean {
   return v === null || (typeof v === 'string' && v.length <= 700000 && /^data:image\/(png|jpe?g|webp|gif);base64,/.test(v));
 }
 
-// Any member can change the group photo or name
+// Only the group owner can change the photo or the name
 async function handleUpdateGroup(request: Request, env: Env, groupId: number): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
-  const isMember = await env.DB.prepare('SELECT id FROM group_members WHERE group_id = ? AND user_id = ?')
-    .bind(groupId, auth.userId).first();
-  if (!isMember) return err('Not a member of this group', 403);
+  const group = await env.DB.prepare('SELECT id, owner_id FROM groups WHERE id = ?').bind(groupId).first() as { id: number; owner_id: number } | null;
+  if (!group) return err('Group not found', 404);
+  if (group.owner_id !== auth.userId) return err('Only the group owner can change this', 403);
   const { name, avatarUrl } = await request.json() as { name?: string; avatarUrl?: string | null };
   if (name !== undefined) {
     const n = String(name).trim();
@@ -615,6 +640,9 @@ function ensureSchema(env: Env): Promise<void> {
       }
       try { await env.DB.prepare('ALTER TABLE users ADD COLUMN last_seen INTEGER').run(); } catch { /* already exists */ }
       try { await env.DB.prepare('ALTER TABLE groups ADD COLUMN avatar_url TEXT').run(); } catch { /* already exists */ }
+      for (const col of ['banner_url TEXT', 'banner_c1 TEXT', 'banner_c2 TEXT']) {
+        try { await env.DB.prepare(`ALTER TABLE users ADD COLUMN ${col}`).run(); } catch { /* already exists */ }
+      }
       await env.DB.batch([
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS uploads (
           id TEXT PRIMARY KEY,
@@ -910,8 +938,8 @@ export default {
       }
 
       // Avatars (public, cached by the browser)
-      const avatarMatch = path.match(/^\/api\/(avatars|group-avatars)\/(\d+)$/);
-      if (avatarMatch && request.method === 'GET') return handleGetAvatar(env, avatarMatch[1] as 'avatars' | 'group-avatars', parseInt(avatarMatch[2]));
+      const avatarMatch = path.match(/^\/api\/(avatars|group-avatars|banners)\/(\d+)$/);
+      if (avatarMatch && request.method === 'GET') return handleGetAvatar(env, avatarMatch[1] as 'avatars' | 'group-avatars' | 'banners', parseInt(avatarMatch[2]));
 
       // Uploads
       if (path === '/api/uploads' && request.method === 'POST') return handleUpload(request, env);

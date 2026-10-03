@@ -1,6 +1,7 @@
 import Avatar from './Avatar';
 import type { FriendUser } from '../api';
 import { PhoneIcon } from './Icons';
+import { bannerStyle } from '../banner';
 
 interface Props {
     friend: FriendUser;
@@ -14,7 +15,7 @@ export default function ProfileCard({ friend, onCall, callDisabled }: Props) {
     return (
         <aside className="right-panel profile-aside">
             <div className="profile-card">
-                <div className="profile-card-banner" style={{ background: `linear-gradient(135deg, ${friend.avatarColor}, #1e1f22)` }} />
+                <div className="profile-card-banner" style={bannerStyle(friend)} />
                 <div className="profile-card-avatar">
                     <Avatar name={friend.username} color={friend.avatarColor} src={friend.avatarUrl} size="xl" zoomable status={online ? 'online' : 'offline'} />
                 </div>

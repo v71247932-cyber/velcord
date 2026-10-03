@@ -133,3 +133,20 @@ export async function uploadVideoAsMessage(file: File, onProgress: (fraction: nu
     await api.completeVideo(id);
     return `[vid:${id}]`;
 }
+
+
+/** Crops an image to fill w x h (like CSS "cover") and returns it as a small JPEG data URL. */
+export async function coverImageDataUrl(file: File, w = 720, h = 240): Promise<string> {
+    if (!file.type.startsWith('image/')) throw new Error('Please choose an image file');
+    if (file.size > MAX_UPLOAD_BYTES) throw new Error('File too large (max 10 MB)');
+    const img = await loadImage(file);
+    const scale = Math.max(w / img.naturalWidth, h / img.naturalHeight);
+    const sw = w / scale, sh = h / scale;
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d')!;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, (img.naturalWidth - sw) / 2, (img.naturalHeight - sh) / 2, sw, sh, 0, 0, w, h);
+    return canvas.toDataURL('image/jpeg', 0.86);
+}

@@ -38,6 +38,7 @@ function AppRoutes() {
 export default function App() {
   return (
     <AuthProvider>
+      <div className="desktop-drag" />
       <BrowserRouter>
         <AppRoutes />
       </BrowserRouter>

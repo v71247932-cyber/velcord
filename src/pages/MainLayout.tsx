@@ -7,8 +7,8 @@ import FriendsPanel from './FriendsPanel';
 import ChatPanel from './ChatPanel';
 import GroupChatPanel from './GroupChatPanel';
 import { useCall } from '../CallContext';
-import { RINGTONES, getRingtoneId, setRingtoneId, previewRingtone } from '../ringtones';
-import type { RingtoneId } from '../ringtones';
+import { bannerStyle } from '../banner';
+import { coverImageDataUrl } from '../uploads';
 import { askNotificationPermissionOnFirstClick, notify, setBadge, isDesktopApp, INSTALL_COMMAND } from '../notify';
 import { PhoneIcon, UsersIcon, PlusIcon } from '../components/Icons';
 import ProfileCard from '../components/ProfileCard';
@@ -37,8 +37,9 @@ export default function MainLayout() {
     const lastUnreadRef = useRef<Map<number, number> | null>(null);
     const openDMRef = useRef<(f: FriendUser) => void>(() => {});
     const [copied, setCopied] = useState(false);
-    const [ringtone, setRingtone] = useState<RingtoneId>(getRingtoneId());
-    const stopPreview = useRef<(() => void) | null>(null);
+    const [bannerC1, setBannerC1] = useState(user?.bannerColor1 || '#5865f2');
+    const [bannerC2, setBannerC2] = useState(user?.bannerColor2 || '#eb459e');
+    const [previewColors, setPreviewColors] = useState(false);
 
     // Notify about new direct messages (and show the unread total on the dock/taskbar icon)
     const handleUnread = (friends: FriendUser[]) => {
@@ -174,6 +175,46 @@ export default function MainLayout() {
         }
     }
  
+    async function handleBannerUpload(e: React.ChangeEvent<HTMLInputElement>) {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) return;
+        setUpdatingProfile(true);
+        try {
+            const dataUrl = await coverImageDataUrl(file, 720, 240);
+            updateUser(await api.updateBanner({ bannerUrl: dataUrl }));
+            setPreviewColors(false);
+        } catch (err: any) {
+            alert(err.message);
+        } finally {
+            setUpdatingProfile(false);
+        }
+    }
+
+    async function saveBannerColors() {
+        setUpdatingProfile(true);
+        try {
+            updateUser(await api.updateBanner({ bannerColors: [bannerC1, bannerC2] }));
+            setPreviewColors(false);
+        } catch (err: any) {
+            alert(err.message);
+        } finally {
+            setUpdatingProfile(false);
+        }
+    }
+
+    async function resetBanner() {
+        setUpdatingProfile(true);
+        try {
+            updateUser(await api.updateBanner({ bannerUrl: null, bannerColors: null }));
+            setPreviewColors(false);
+        } catch (err: any) {
+            alert(err.message);
+        } finally {
+            setUpdatingProfile(false);
+        }
+    }
+
     async function handleRemoveAvatar() {
         if (!confirm('Are you sure you want to remove your profile picture?')) return;
         setUpdatingProfile(true);
@@ -190,7 +231,7 @@ export default function MainLayout() {
     openDMRef.current = openDM;
     const pendingCount = friendsData.pendingReceived.length;
     const currentFriend = view.type === 'dm' ? view.friend : null;
-    const currentGroup = view.type === 'group' ? view.group : null;
+    const currentGroup = view.type === 'group' ? (groups.find(g => g.id === view.group.id) ?? view.group) : null;
 
     const getHeaderTitle = () => {
         if (view.type === 'friends') return 'Friends';
@@ -224,11 +265,7 @@ export default function MainLayout() {
                     id="nav-friends"
                 >
                     <UsersIcon size={22} />
-                    {pendingCount > 0 ? (
-                        <span className="badge">{pendingCount}</span>
-                    ) : (
-                        <span className="badge badge-dot" />
-                    )}
+                    {pendingCount > 0 && <span className="badge">{pendingCount}</span>}
                 </button>
 
                 <div className="nav-separator" />
@@ -383,7 +420,7 @@ export default function MainLayout() {
             {showProfileMenu && (
                 <div className="modal-overlay" onClick={() => setShowProfileMenu(false)}>
                     <div className="modal-content profile-modal" onClick={e => e.stopPropagation()}>
-                        <div className="profile-banner" style={{ background: `linear-gradient(135deg, ${user!.avatarColor}, #1e1f22)` }}>
+                        <div className="profile-banner" style={previewColors ? { background: `linear-gradient(135deg, ${bannerC1}, ${bannerC2})` } : bannerStyle(user!)}>
                             <button className="profile-close" onClick={() => setShowProfileMenu(false)} aria-label="Close">×</button>
                         </div>
                         <div className="profile-edit-body">
@@ -410,37 +447,7 @@ export default function MainLayout() {
                                 )}
                             </div>
 
-                            <div className="ringtone-picker">
-                                <div className="desktop-install-title">Call sound</div>
-                                {RINGTONES.map(r => (
-                                    <div
-                                        key={r.id}
-                                        className={`ringtone-row ${ringtone === r.id ? 'on' : ''}`}
-                                        onClick={() => {
-                                            setRingtone(r.id);
-                                            setRingtoneId(r.id);
-                                            stopPreview.current?.();
-                                            stopPreview.current = previewRingtone(r.id);
-                                        }}
-                                    >
-                                        <span className="ringtone-radio" />
-                                        <span className="ringtone-text">
-                                            <span className="ringtone-name">{r.label}</span>
-                                            <span className="ringtone-hint">{r.hint}</span>
-                                        </span>
-                                    </div>
-                                ))}
-                            </div>
-
-                            {isDesktopApp() ? (
-                                <div className="desktop-install">
-                                    <div className="desktop-install-title">Desktop app</div>
-                                    <p>You are using the Velcord desktop app.</p>
-                                    <button className="avatar-btn avatar-btn-secondary" style={{ color: 'var(--text-primary)' }} onClick={() => window.velcordDesktop?.checkPermissions()}>
-                                        Check permissions
-                                    </button>
-                                </div>
-                            ) : (
+                            {!isDesktopApp() && (
                                 <div className="desktop-install">
                                     <div className="desktop-install-title">Desktop app</div>
                                     <p>Install Velcord on your Mac or Linux computer. Paste this in a terminal:</p>
@@ -452,6 +459,23 @@ export default function MainLayout() {
                                     </div>
                                 </div>
                             )}
+
+                            <div className="banner-editor">
+                                <div className="desktop-install-title">Profile banner</div>
+                                <div className="banner-editor-row">
+                                    <label className={`avatar-btn avatar-btn-secondary banner-btn ${updatingProfile ? 'disabled' : ''}`}>
+                                        Upload picture
+                                        <input type="file" accept="image/*" hidden onChange={handleBannerUpload} disabled={updatingProfile} />
+                                    </label>
+                                    <button type="button" className="avatar-btn avatar-btn-secondary banner-btn" onClick={resetBanner} disabled={updatingProfile}>Reset</button>
+                                </div>
+                                <div className="banner-editor-row banner-colors">
+                                    <span>or two colours</span>
+                                    <input type="color" value={bannerC1} onChange={e => { setBannerC1(e.target.value); setPreviewColors(true); }} aria-label="First colour" />
+                                    <input type="color" value={bannerC2} onChange={e => { setBannerC2(e.target.value); setPreviewColors(true); }} aria-label="Second colour" />
+                                    <button type="button" className="avatar-btn avatar-btn-secondary banner-btn" onClick={saveBannerColors} disabled={updatingProfile || !previewColors}>Apply</button>
+                                </div>
+                            </div>
 
                             <form onSubmit={handleUpdateProfile} className="profile-form">
                                 <div className="form-group">
