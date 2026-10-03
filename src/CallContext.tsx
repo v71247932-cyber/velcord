@@ -4,6 +4,7 @@ import { api } from './api';
 import type { CallSignal, User } from './api';
 import { useAuth } from './AuthContext';
 import Avatar from './components/Avatar';
+import { MicIcon, MicOffIcon, VideoIcon, VideoOffIcon } from './components/Icons';
 import { notify } from './notify';
 import { startRinging } from './ringtones';
 import { onLive } from './live';
@@ -83,6 +84,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const [localCam, setLocalCam] = useState(false);
     const [remoteCam, setRemoteCam] = useState(false);
     const [incomingVideo, setIncomingVideo] = useState(false);
+    const [startedVideo, setStartedVideo] = useState(false); // I started this call as a video call
+    const [sawCam, setSawCam] = useState(false); // someone turned a camera on during this call
     const [trackVersion, setTrackVersion] = useState(0);
 
     // Mutable call state lives in refs so the polling loop never sees stale values
@@ -154,6 +157,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
         setLocalCam(false);
         setRemoteCam(false);
         setIncomingVideo(false);
+        setStartedVideo(false);
+        setSawCam(false);
         setAskShare(false);
         setSeconds(0);
         setPhaseBoth('idle');
@@ -449,7 +454,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const startCall = useCallback(async (friend: User, opts?: { video?: boolean }) => {
         if (phaseRef.current !== 'idle') return;
         await getMic();
-        if (opts?.video) await getCamera();
+        if (opts?.video) { setStartedVideo(true); await getCamera(); }
         if (phaseRef.current !== 'idle') { camRef.current?.getTracks().forEach(t => t.stop()); camRef.current = null; return; }
         peerRef.current = friend;
         setPeer(friend);
@@ -619,6 +624,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }, [trackVersion, remoteSharing, remoteCam, localCam, phase]);
 
     const videoMode = localCam || remoteCam;
+    // The camera button belongs to video calls: started as one, answered as one, or once a camera was on
+    const isVideoCall = startedVideo || incomingVideo || sawCam || videoMode;
+    useEffect(() => { if (localCam || remoteCam) setSawCam(true); }, [localCam, remoteCam]);
     const mm = String(Math.floor(seconds / 60)).padStart(2, '0');
     const ss = String(seconds % 60).padStart(2, '0');
     const inCall = phase === 'connecting' || phase === 'active';
@@ -693,12 +701,26 @@ export function CallProvider({ children }: { children: ReactNode }) {
                     </div>
                     )}
                     <div className="call-buttons">
-                        <button className={`call-btn ${muted ? 'call-btn-on' : ''}`} onClick={toggleMute} disabled={!hasMic} title={hasMic ? '' : 'No microphone'}>
-                            {!hasMic ? 'No mic' : muted ? 'Unmute' : 'Mute'}
+                        <button
+                            className={`call-icon-btn ${muted || deafened || !hasMic ? 'is-off' : ''}`}
+                            onClick={toggleMute}
+                            disabled={!hasMic}
+                            title={!hasMic ? 'No microphone' : muted || deafened ? 'Unmute' : 'Mute'}
+                            aria-label={muted || deafened || !hasMic ? 'Unmute microphone' : 'Mute microphone'}
+                        >
+                            {muted || deafened || !hasMic ? <MicOffIcon size={20} /> : <MicIcon size={20} />}
                         </button>
-                        <button className={`call-btn ${localCam ? 'call-btn-on' : ''}`} onClick={toggleCamera} disabled={phase !== 'active'}>
-                            {localCam ? 'Camera off' : 'Camera'}
-                        </button>
+                        {isVideoCall && (
+                            <button
+                                className={`call-icon-btn ${localCam ? '' : 'is-off'}`}
+                                onClick={toggleCamera}
+                                disabled={phase !== 'active'}
+                                title={localCam ? 'Turn the camera off' : 'Turn the camera on'}
+                                aria-label={localCam ? 'Turn the camera off' : 'Turn the camera on'}
+                            >
+                                {localCam ? <VideoIcon size={20} /> : <VideoOffIcon size={20} />}
+                            </button>
+                        )}
                         {sharing
                             ? <button className="call-btn call-btn-on" onClick={stopScreenShare}>Stop sharing</button>
                             : <button className="call-btn" onClick={() => setAskShare(true)} disabled={phase !== 'active'}>Share screen</button>}

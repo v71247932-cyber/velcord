@@ -44,3 +44,12 @@ export const CrownIcon = (p: IconProps) => (
 export const VideoIcon = (p: IconProps) => (
     <Svg {...p}><rect x="2.5" y="6" width="13" height="12" rx="3" /><path d="m15.5 10.5 6-3.5v10l-6-3.5" /></Svg>
 );
+export const MicIcon = (p: IconProps) => (
+    <Svg {...p}><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></Svg>
+);
+export const MicOffIcon = (p: IconProps) => (
+    <Svg {...p}><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3M3 3l18 18" /></Svg>
+);
+export const VideoOffIcon = (p: IconProps) => (
+    <Svg {...p}><rect x="2.5" y="6" width="13" height="12" rx="3" /><path d="m15.5 10.5 6-3.5v10l-6-3.5M3 3l18 18" /></Svg>
+);

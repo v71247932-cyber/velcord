@@ -1980,3 +1980,18 @@ html.desktop-app .viewer { top: 28px; }
 
 /* my own messages: every line of text starts from the left, like the other person's */
 .msg-group-sent .msg-text { text-align: left; }
+
+/* ---- Call window: microphone and camera as icons ---- */
+.call-icon-btn {
+  flex: 0 0 auto; width: 44px; height: 44px; border: none; border-radius: 12px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-accent); color: var(--text-primary);
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.05) inset;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease;
+}
+.call-icon-btn:hover:not(:disabled) { background: var(--bg-hover); }
+.call-icon-btn:active:not(:disabled) { transform: scale(0.94); }
+.call-icon-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.call-icon-btn.is-off { background: rgba(242,63,67,0.16); color: #f4595d; }
+.call-icon-btn.is-off:hover:not(:disabled) { background: rgba(242,63,67,0.26); }
+.call-buttons .call-btn { flex: 1 1 0; }
