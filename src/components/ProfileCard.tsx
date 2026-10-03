@@ -2,6 +2,7 @@ import Avatar from './Avatar';
 import type { FriendUser } from '../api';
 import { PhoneIcon } from './Icons';
 import { bannerStyle } from '../banner';
+import VerifiedBadge from './VerifiedBadge';
 
 interface Props {
     friend: FriendUser;
@@ -20,7 +21,7 @@ export default function ProfileCard({ friend, onCall, callDisabled }: Props) {
                     <Avatar name={friend.username} color={friend.avatarColor} src={friend.avatarUrl} size="xl" zoomable status={online ? 'online' : 'offline'} />
                 </div>
                 <div className="profile-card-body">
-                    <div className="profile-card-name">{friend.username}</div>
+                    <div className="profile-card-name">{friend.username}{friend.verified && <VerifiedBadge size={18} />}</div>
                     <div className={`profile-card-status ${online ? 'is-online' : ''}`}>
                         <span className={`status-dot-inline status-${online ? 'online' : 'offline'}`} />
                         {online ? 'Online' : 'Offline'}

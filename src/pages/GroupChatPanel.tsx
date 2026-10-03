@@ -3,6 +3,7 @@ import { api } from '../api';
 import type { Message, Group } from '../api';
 import { useAuth } from '../AuthContext';
 import Avatar from '../components/Avatar';
+import VerifiedBadge from '../components/VerifiedBadge';
 import { MessageContent } from '../components/MessageContent';
 import { useAttach } from '../useAttach';
 import { useChat } from '../useChat';
@@ -120,7 +121,7 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
                     <div className="msg-content-col">
                         <div className="msg-header">
                             <span className="msg-author" style={{ color: isMe ? '#fff' : msg.sender.avatarColor }}>
-                                {msg.sender.username}
+                                {msg.sender.username}{msg.sender.verified && <VerifiedBadge size={14} />}
                             </span>
                             <span className="msg-time">{formatTime(msg.createdAt)}</span>
                         </div>

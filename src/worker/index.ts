@@ -8,6 +8,8 @@ export interface Env {
   ASSETS: Fetcher;
   /** Workers KV: holds the video chunks, which expire on their own */
   MEDIA?: KVNamespace;
+  /** Secret that lets the owner post official notifications as the Velcord account */
+  SYSTEM_KEY?: string;
 }
 
 // --- Simple JWT implementation using Web Crypto ---
@@ -89,6 +91,52 @@ async function purgeOldMessages(env: Env) {
   ]);
 }
 
+// --- Official "Velcord" account: verified tick, read-only for users, posts notifications ---
+const SYSTEM_NAME = 'Velcord';
+const SYSTEM_RECIPIENTS = ['idk123idk123dasa']; // only these accounts get Velcord in their friend list
+const isVerified = (username: string | null | undefined) => !!username && username.toLowerCase() === SYSTEM_NAME.toLowerCase();
+const isReservedName = (username: string) => /velcord/i.test(username);
+
+async function ensureSystemUser(env: Env): Promise<number> {
+  const row = await env.DB.prepare('SELECT id FROM users WHERE username = ?').bind(SYSTEM_NAME).first() as { id: number } | null;
+  if (row) return row.id;
+  // Nobody can log in to this account: the stored hash is random and the password is never known
+  const hex = (n: number) => Array.from(crypto.getRandomValues(new Uint8Array(n))).map(b => b.toString(16).padStart(2, '0')).join('');
+  const created = await env.DB.prepare("INSERT INTO users (username, password_hash, avatar_color) VALUES (?, ?, '#5865f2') RETURNING id")
+    .bind(SYSTEM_NAME, `${hex(16)}:${hex(32)}`).first() as { id: number };
+  return created.id;
+}
+
+async function isSystemUserId(env: Env, userId: number): Promise<boolean> {
+  const row = await env.DB.prepare('SELECT username FROM users WHERE id = ?').bind(userId).first() as { username: string } | null;
+  return isVerified(row?.username);
+}
+
+async function handleSystemNotify(request: Request, env: Env): Promise<Response> {
+  const key = request.headers.get('X-System-Key');
+  if (!env.SYSTEM_KEY || !key || key !== env.SYSTEM_KEY) return err('Not found', 404);
+  const { to, text } = await request.json() as { to?: string; text?: string };
+  if (!to || !text?.trim()) return err('Missing recipient or text');
+  if (text.length > 2000) return err('Text too long (max 2000 chars)');
+  const target = await env.DB.prepare('SELECT id, username FROM users WHERE username = ?').bind(to).first() as { id: number; username: string } | null;
+  if (!target) return err('No such user', 404);
+
+  const sys = await ensureSystemUser(env);
+  const pair = "(requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)";
+  let fr = await env.DB.prepare(`SELECT id, status FROM friendships WHERE ${pair}`).bind(sys, target.id, target.id, sys).first() as { id: number; status: string } | null;
+  if (!fr && SYSTEM_RECIPIENTS.includes(target.username.toLowerCase())) {
+    await env.DB.prepare("INSERT INTO friendships (requester_id, addressee_id, status) VALUES (?, ?, 'accepted')").bind(sys, target.id).run();
+    fr = { id: 0, status: 'accepted' };
+  } else if (fr && fr.status !== 'accepted' && SYSTEM_RECIPIENTS.includes(target.username.toLowerCase())) {
+    await env.DB.prepare("UPDATE friendships SET status = 'accepted' WHERE id = ?").bind(fr.id).run();
+  }
+  if (!fr) return err('Velcord is only in the friend list of approved accounts', 403);
+
+  const msg = await env.DB.prepare('INSERT INTO direct_messages (sender_id, receiver_id, content) VALUES (?, ?, ?) RETURNING id, created_at')
+    .bind(sys, target.id, text.trim()).first() as { id: number; created_at: number };
+  return json({ id: msg.id, createdAt: msg.created_at, to: target.username }, 201);
+}
+
 // --- Avatars ---
 // Pictures are stored as data URLs. API responses never carry them: queries return a short
 // version token and the client loads /api/avatars/<id>?v=<token>, which the browser caches.
@@ -134,7 +182,7 @@ async function getAuth(request: Request, env: Env): Promise<{ userId: number; us
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-System-Key',
 };
 
 function json(data: unknown, status = 200): Response {
@@ -159,6 +207,7 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
   if (username.length < 2 || username.length > 32) return err('Username must be 2-32 characters');
   if (!/^[a-zA-Z0-9._-]+$/.test(username)) return err('Username can only contain letters, numbers, dots, underscores, hyphens');
   if (password.length < 6) return err('Password must be at least 6 characters');
+  if (isReservedName(username)) return err('This name is reserved');
 
   const existing = await env.DB.prepare('SELECT id FROM users WHERE username = ?').bind(username).first();
   if (existing) return err('Username already taken');
@@ -205,6 +254,7 @@ async function handleUpdateProfile(request: Request, env: Env): Promise<Response
   if (username) {
     if (username.length < 2 || username.length > 32) return err('Username must be 2-32 characters');
     if (!/^[a-zA-Z0-9._-]+$/.test(username)) return err('Username can only contain letters, numbers, dots, underscores, hyphens');
+    if (isReservedName(username)) return err('This name is reserved');
     const existing = await env.DB.prepare('SELECT id FROM users WHERE username = ? AND id != ?').bind(username, auth.userId).first();
     if (existing) return err('Username already taken');
     await env.DB.prepare('UPDATE users SET username = ? WHERE id = ?').bind(username, auth.userId).run();
@@ -289,6 +339,7 @@ async function handleGetFriends(request: Request, env: Env): Promise<Response> {
     id: r.id, username: r.username, avatarColor: r.avatar_color,
     avatarUrl: avatarPath('avatars', r.id, r.avatar_url),
     ...bannerFields(r),
+    verified: isVerified(r.username),
     online: isOnline(r.last_seen), friendshipId: r.friendship_id,
   });
   return json({
@@ -348,6 +399,9 @@ async function handleRejectFriend(request: Request, env: Env): Promise<Response>
   ).bind(friendshipId, auth.userId, auth.userId).first() as { id: number } | null;
 
   if (!friendship) return err('Friend request not found', 404);
+  const sysRow = await env.DB.prepare(`SELECT 1 FROM friendships f JOIN users u ON u.id IN (f.requester_id, f.addressee_id)
+    WHERE f.id = ? AND u.username = ?`).bind(friendshipId, SYSTEM_NAME).first();
+  if (sysRow) return err('You cannot remove Velcord', 403);
   await env.DB.prepare('DELETE FROM friendships WHERE id = ?').bind(friendshipId).run();
   return json({ success: true });
 }
@@ -393,7 +447,7 @@ async function handleGetMessages(request: Request, env: Env, otherUserId: number
     createdAt: m.created_at,
     deliveredAt: m.delivered_at,
     readAt: m.read_at,
-    sender: { id: m.sender_id, username: m.sender_username, avatarColor: m.sender_avatar_color, avatarUrl: avatarPath('avatars', m.sender_id, m.sender_avatar_url) },
+    sender: { id: m.sender_id, username: m.sender_username, verified: isVerified(m.sender_username), avatarColor: m.sender_avatar_color, avatarUrl: avatarPath('avatars', m.sender_id, m.sender_avatar_url) },
   })));
 }
 
@@ -417,6 +471,8 @@ async function handleSendMessage(request: Request, env: Env, otherUserId: number
   const { content } = await request.json() as { content: string };
   if (!content?.trim()) return err('Message cannot be empty');
   if (content.length > 2000) return err('Message too long (max 2000 chars)');
+
+  if (await isSystemUserId(env, otherUserId)) return err('Velcord is an official account. You cannot reply to it.', 403);
 
   // Friendship check and insert in one statement
   const result = await env.DB.prepare(`
@@ -502,6 +558,7 @@ async function handleGroupMembers(request: Request, env: Env, groupId: number): 
     avatarUrl: avatarPath('avatars', r.id, r.avatar_url),
     online: r.id === auth.userId || isOnline(r.last_seen),
     isOwner: r.id === r.owner_id,
+    verified: isVerified(r.username),
   })));
 }
 
@@ -594,7 +651,7 @@ async function handleGetGroupMessages(request: Request, env: Env, groupId: numbe
     id: m.id,
     content: m.content,
     createdAt: m.created_at,
-    sender: { id: m.sender_id, username: m.sender_username, avatarColor: m.sender_avatar_color, avatarUrl: avatarPath('avatars', m.sender_id, m.sender_avatar_url) },
+    sender: { id: m.sender_id, username: m.sender_username, verified: isVerified(m.sender_username), avatarColor: m.sender_avatar_color, avatarUrl: avatarPath('avatars', m.sender_id, m.sender_avatar_url) },
   })));
 }
 
@@ -877,6 +934,7 @@ async function handleCallSignal(request: Request, env: Env): Promise<Response> {
     "SELECT id FROM friendships WHERE status = 'accepted' AND ((requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?))"
   ).bind(auth.userId, to, to, auth.userId).first();
   if (!friendship) return err('You can only call friends', 403);
+  if (await isSystemUserId(env, to)) return err('You cannot call Velcord', 403);
   await env.DB.prepare('INSERT INTO call_signals (from_id, to_id, type, payload) VALUES (?, ?, ?, ?)')
     .bind(auth.userId, to, type, payload ?? null).run();
   return json({ success: true }, 201);
@@ -945,6 +1003,9 @@ export default {
       if (path === '/api/uploads' && request.method === 'POST') return handleUpload(request, env);
       const uploadMatch = path.match(/^\/api\/uploads\/([a-f0-9]+)$/);
       if (uploadMatch && request.method === 'GET') return handleGetUpload(env, uploadMatch[1]);
+
+      // Official notifications (needs the secret key)
+      if (path === '/api/system/notify' && request.method === 'POST') return handleSystemNotify(request, env);
 
       // Video clips
       if (path === '/api/videos' && request.method === 'POST') return handleVideoInit(request, env);

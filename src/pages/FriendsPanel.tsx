@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { api } from '../api';
 import type { FriendUser, FriendsData } from '../api';
 import Avatar from '../components/Avatar';
+import VerifiedBadge from '../components/VerifiedBadge';
 import { useCall } from '../CallContext';
 import { PhoneIcon, MessageIcon, CloseIcon, UsersIcon } from '../components/Icons';
 
@@ -98,21 +99,21 @@ export default function FriendsPanel({ onOpenDM }: FriendsPanelProps) {
                                     <div key={f.id} className="friend-item">
                                         <Avatar name={f.username} color={f.avatarColor} src={f.avatarUrl} size="md" zoomable status={f.online ? 'online' : 'offline'} />
                                         <div className="friend-info">
-                                            <div className="friend-name">{f.username}</div>
+                                            <div className="friend-name">{f.username}{f.verified && <VerifiedBadge size={14} />}</div>
                                             <div className="friend-status">{f.online ? 'Online' : 'Offline'}</div>
                                         </div>
                                         <div className="friend-actions">
                                             <button className="btn btn-secondary btn-sm" onClick={() => onOpenDM(f)}>
                                                 <MessageIcon size={15} /> Message
                                             </button>
-                                            <button className="btn btn-secondary btn-sm" onClick={() => startCall(f)}
+                                            {!f.verified && (<button className="btn btn-secondary btn-sm" onClick={() => startCall(f)}
                                                 disabled={callPhase !== 'idle'} title="Start a call">
                                                 <PhoneIcon size={15} /> Call
-                                            </button>
-                                            <button className="btn btn-danger btn-sm" onClick={() => handleReject(f.friendshipId)}
+                                            </button>)}
+                                            {!f.verified && (<button className="btn btn-danger btn-sm" onClick={() => handleReject(f.friendshipId)}
                                                 title="Remove friend">
                                                 <CloseIcon size={14} />
-                                            </button>
+                                            </button>)}
                                         </div>
                                     </div>
                                 ))}

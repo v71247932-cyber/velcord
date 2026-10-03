@@ -3,6 +3,7 @@ import { api } from '../api';
 import type { Message, FriendUser } from '../api';
 import { useAuth } from '../AuthContext';
 import Avatar from '../components/Avatar';
+import VerifiedBadge from '../components/VerifiedBadge';
 import { MessageContent, Ticks } from '../components/MessageContent';
 import { useAttach } from '../useAttach';
 import { useChat } from '../useChat';
@@ -124,7 +125,7 @@ export default function ChatPanel({ friend }: ChatPanelProps) {
                     <div className="msg-content-col">
                         <div className="msg-header">
                             <span className="msg-author" style={{ color: isMe ? '#fff' : msg.sender.avatarColor }}>
-                                {msg.sender.username}
+                                {msg.sender.username}{msg.sender.verified && <VerifiedBadge size={14} />}
                             </span>
                             <span className="msg-time">{formatTime(msg.createdAt)}</span>
                             {isMe && <Ticks msg={msg} />}
@@ -164,6 +165,9 @@ export default function ChatPanel({ friend }: ChatPanelProps) {
                 </div>
             )}
 
+            {friend.verified ? (
+                <div className="official-note">This is an official Velcord account. You can read its messages but not reply.</div>
+            ) : (
             <div className="chat-input-area">
                 <div className="chat-input-wrapper">
                     <input
@@ -207,6 +211,7 @@ export default function ChatPanel({ friend }: ChatPanelProps) {
                     </button>
                 </div>
             </div>
+            )}
         </div>
     );
 }

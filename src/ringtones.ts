@@ -97,3 +97,19 @@ export function startRinging(isIncoming: boolean): () => void {
     const iv = setInterval(() => pattern.play(c, master), pattern.period * 1000);
     return () => { clearInterval(iv); c.close().catch(() => {}); };
 }
+
+
+let messageCtx: AudioContext | null = null;
+/** A short, soft two-note chime for a new message. */
+export function playMessageSound() {
+    const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!Ctx) return;
+    try {
+        if (!messageCtx || messageCtx.state === 'closed') messageCtx = new Ctx() as AudioContext;
+        const c = messageCtx;
+        c.resume().catch(() => {});
+        const out = withEcho(c, c.destination, 0.18);
+        marimba(c, out, N.E6, 0, 0.22);
+        marimba(c, out, N.B5, 0.11, 0.2);
+    } catch { /* audio unavailable */ }
+}

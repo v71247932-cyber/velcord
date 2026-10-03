@@ -1768,3 +1768,9 @@ html.desktop-app body { background: var(--bg-primary); }
 .user-bar-bg::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(18,19,22,0.62), rgba(18,19,22,0.42)); }
 .user-bar-bg ~ .user-bar-main .user-name { text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
 .user-bar-bg ~ .user-bar-main .user-tag { color: #d5d8de; }
+
+/* ---- Verified tick + official account ---- */
+.verified-badge { display: inline-flex; vertical-align: middle; margin-left: 5px; flex-shrink: 0; }
+.dm-name, .friend-name, .header-name, .profile-card-name, .member-name { display: inline-flex; align-items: center; min-width: 0; }
+.dm-name { overflow: hidden; }
+.official-note { margin: 0 16px 16px; padding: 12px 16px; border-radius: 10px; background: var(--bg-modifier); color: var(--text-muted); font-size: 13px; text-align: center; }

@@ -8,6 +8,8 @@ import ChatPanel from './ChatPanel';
 import GroupChatPanel from './GroupChatPanel';
 import { useCall } from '../CallContext';
 import { bannerStyle } from '../banner';
+import { playMessageSound } from '../ringtones';
+import VerifiedBadge from '../components/VerifiedBadge';
 import { coverImageDataUrl } from '../uploads';
 import { askNotificationPermissionOnFirstClick, notify, setBadge, isDesktopApp, INSTALL_COMMAND } from '../notify';
 import { PhoneIcon, UsersIcon, PlusIcon } from '../components/Icons';
@@ -50,7 +52,10 @@ export default function MainLayout() {
                 if ((f.lastUnreadId || 0) <= (prev.get(f.id) ?? 0)) continue;
                 const v = viewRef.current;
                 const watching = document.hasFocus() && v.type === 'dm' && v.friend.id === f.id;
-                if (!watching) notify(f.username, f.preview || 'New message', { tag: `dm-${f.id}`, onClick: () => openDMRef.current(f) });
+                if (!watching) {
+                    playMessageSound();
+                    notify(f.username, f.preview || 'New message', { tag: `dm-${f.id}`, onClick: () => openDMRef.current(f) });
+                }
             }
         }
         lastUnreadRef.current = next;
@@ -316,7 +321,7 @@ export default function MainLayout() {
                         >
                             <Avatar name={f.username} color={f.avatarColor} src={f.avatarUrl} size="sm" status={f.online ? 'online' : 'offline'} />
                             <div className="sidebar-user-details">
-                                <span className="dm-name">{f.username}</span>
+                                <span className="dm-name">{f.username}{f.verified && <VerifiedBadge size={14} />}</span>
                                 {(f.unread || 0) > 0 && currentFriend?.id !== f.id && (
                                     <span className="unread-badge">{(f.unread || 0) > 99 ? '99+' : f.unread}</span>
                                 )}
@@ -378,8 +383,8 @@ export default function MainLayout() {
                             <div className="chat-main">
                                 <div className="content-header">
                                     <Avatar name={live.username} color={live.avatarColor} src={live.avatarUrl} size="sm" zoomable status={live.online ? 'online' : 'offline'} />
-                                    <span>{live.username}</span>
-                                    {isFriend && (
+                                    <span className="header-name">{live.username}{live.verified && <VerifiedBadge size={16} />}</span>
+                                    {isFriend && !live.verified && (
                                         <button
                                             className="header-call-btn"
                                             onClick={() => startCall(live)}
@@ -392,7 +397,7 @@ export default function MainLayout() {
                                 </div>
                                 <ChatPanel key={currentFriend.id} friend={live} />
                             </div>
-                            <ProfileCard friend={live} onCall={isFriend ? () => startCall(live) : undefined} callDisabled={callPhase !== 'idle'} />
+                            <ProfileCard friend={live} onCall={isFriend && !live.verified ? () => startCall(live) : undefined} callDisabled={callPhase !== 'idle'} />
                         </div>
                     );
                 })()}

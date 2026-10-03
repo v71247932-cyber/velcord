@@ -113,6 +113,7 @@ export interface User {
     bannerUrl?: string | null;
     bannerColor1?: string | null;
     bannerColor2?: string | null;
+    verified?: boolean;
 }
 
 export interface FriendUser {
@@ -123,6 +124,7 @@ export interface FriendUser {
     bannerUrl?: string | null;
     bannerColor1?: string | null;
     bannerColor2?: string | null;
+    verified?: boolean;
     online?: boolean;
     unread?: number;
     lastUnreadId?: number;
@@ -143,6 +145,7 @@ export interface GroupMember {
     avatarUrl?: string;
     online: boolean;
     isOwner: boolean;
+    verified?: boolean;
 }
 
 export interface Message {

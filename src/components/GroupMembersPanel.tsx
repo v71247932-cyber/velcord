@@ -4,6 +4,7 @@ import type { FriendUser, Group, GroupMember } from '../api';
 import { squareImageDataUrl } from '../uploads';
 import { useAuth } from '../AuthContext';
 import Avatar from './Avatar';
+import VerifiedBadge from './VerifiedBadge';
 import { CrownIcon, ImageIcon, UserPlusIcon, CheckIcon } from './Icons';
 
 interface Props {
@@ -94,7 +95,7 @@ export default function GroupMembersPanel({ group, friends, onGroupChanged }: Pr
     const row = (m: GroupMember) => (
         <div key={m.id} className={`member-row ${m.online ? '' : 'member-offline'}`}>
             <Avatar name={m.username} color={m.avatarColor} src={m.avatarUrl} size="sm" zoomable status={m.online ? 'online' : 'offline'} />
-            <span className="member-name">{m.username}</span>
+            <span className="member-name">{m.username}{m.verified && <VerifiedBadge size={14} />}</span>
             {m.isOwner && <span className="member-owner" title="Group owner"><CrownIcon size={13} /> Owner</span>}
         </div>
     );
