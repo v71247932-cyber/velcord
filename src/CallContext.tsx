@@ -34,6 +34,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const [phase, setPhase] = useState<Phase>('idle');
     const [peer, setPeer] = useState<User | null>(null);
     const [muted, setMuted] = useState(false);
+    const [hasMic, setHasMic] = useState(true);
     const [sharing, setSharing] = useState(false);
     const [remoteSharing, setRemoteSharing] = useState(false);
     const [notice, setNotice] = useState<string | null>(null);
@@ -82,6 +83,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         peerRef.current = null;
         setPeer(null);
         setMuted(false);
+        setHasMic(true);
         setSharing(false);
         setRemoteSharing(false);
         setAskShare(false);
@@ -109,7 +111,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
         const pc = new RTCPeerConnection(RTC_CONFIG);
         pcRef.current = pc;
 
-        micRef.current?.getTracks().forEach(t => pc.addTrack(t, micRef.current!));
+        if (micRef.current) {
+            micRef.current.getTracks().forEach(t => pc.addTrack(t, micRef.current!));
+        } else {
+            // No microphone: still receive the other side's audio
+            pc.addTransceiver('audio', { direction: 'recvonly' });
+        }
 
         pc.onicecandidate = e => { if (e.candidate) send('ice', e.candidate.toJSON()); };
 
@@ -148,11 +155,19 @@ export function CallProvider({ children }: { children: ReactNode }) {
         for (const c of pending) { try { await pc.addIceCandidate(c); } catch { /* noop */ } }
     };
 
+    // The microphone is optional: without it you can still call, listen and share your screen.
     const getMic = async () => {
-        const stream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        });
-        micRef.current = stream;
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+            });
+            micRef.current = stream;
+            setHasMic(true);
+        } catch (e) {
+            micRef.current = null;
+            setHasMic(false);
+            setNotice(`${describeMediaError(e)} Calling without a microphone: you can listen and share your screen.`);
+        }
     };
 
     const handleSignal = useCallback(async (sig: CallSignal, serverNow: number) => {
@@ -247,6 +262,41 @@ export function CallProvider({ children }: { children: ReactNode }) {
         return () => clearInterval(t);
     }, [phase]);
 
+    // Ringtone: ring-ring for incoming calls, a softer ringback while calling
+    useEffect(() => {
+        if (phase !== 'ringing' && phase !== 'calling') return;
+        const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+        if (!Ctx) return;
+        const ctx: AudioContext = new Ctx();
+        ctx.resume().catch(() => {});
+        const incoming = phase === 'ringing';
+        const beep = (freqs: number[], start: number, dur: number, vol: number) => {
+            const gain = ctx.createGain();
+            gain.gain.setValueAtTime(0, ctx.currentTime + start);
+            gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + start + 0.02);
+            gain.gain.setValueAtTime(vol, ctx.currentTime + start + dur - 0.03);
+            gain.gain.linearRampToValueAtTime(0, ctx.currentTime + start + dur);
+            gain.connect(ctx.destination);
+            for (const f of freqs) {
+                const osc = ctx.createOscillator();
+                osc.type = 'sine';
+                osc.frequency.value = f;
+                osc.connect(gain);
+                osc.start(ctx.currentTime + start);
+                osc.stop(ctx.currentTime + start + dur);
+            }
+        };
+        const pattern = () => {
+            if (incoming) { beep([880, 1100], 0, 0.35, 0.18); beep([880, 1100], 0.5, 0.35, 0.18); }
+            else beep([440, 480], 0, 1.2, 0.08);
+        };
+        pattern();
+        const iv = setInterval(pattern, incoming ? 2200 : 3000);
+        const prevTitle = document.title;
+        if (incoming) document.title = '📞 Incoming call';
+        return () => { clearInterval(iv); ctx.close().catch(() => {}); document.title = prevTitle; };
+    }, [phase]);
+
     // Auto-hide notices
     useEffect(() => {
         if (!notice) return;
@@ -273,12 +323,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
     const startCall = useCallback(async (friend: User) => {
         if (phaseRef.current !== 'idle') return;
-        try {
-            await getMic();
-        } catch (e) {
-            setNotice(describeMediaError(e));
-            return;
-        }
+        await getMic();
+        if (phaseRef.current !== 'idle') return;
         peerRef.current = friend;
         setPeer(friend);
         setPhaseBoth('calling');
@@ -296,13 +342,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     async function acceptCall() {
         if (phaseRef.current !== 'ringing') return;
         if (ringTimerRef.current) { clearTimeout(ringTimerRef.current); ringTimerRef.current = null; }
-        try {
-            await getMic();
-        } catch (e) {
-            await send('reject');
-            endCall(describeMediaError(e), false);
-            return;
-        }
+        await getMic();
+        if (phaseRef.current !== 'ringing') { micRef.current?.getTracks().forEach(t => t.stop()); micRef.current = null; return; }
         setPhaseBoth('connecting');
         createPeerConnection(true);
         await send('accept');
@@ -398,8 +439,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
                         </div>
                     </div>
                     <div className="call-buttons">
-                        <button className={`call-btn ${muted ? 'call-btn-on' : ''}`} onClick={toggleMute}>
-                            {muted ? 'Unmute' : 'Mute'}
+                        <button className={`call-btn ${muted ? 'call-btn-on' : ''}`} onClick={toggleMute} disabled={!hasMic} title={hasMic ? '' : 'No microphone'}>
+                            {!hasMic ? 'No mic' : muted ? 'Unmute' : 'Mute'}
                         </button>
                         {sharing
                             ? <button className="call-btn call-btn-on" onClick={stopScreenShare}>Stop sharing</button>

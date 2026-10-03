@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { api } from '../api';
 import type { FriendUser, FriendsData } from '../api';
 import Avatar from '../components/Avatar';
+import { useCall } from '../CallContext';
 
 interface FriendsPanelProps {
     onOpenDM: (friend: FriendUser) => void;
@@ -10,6 +11,7 @@ interface FriendsPanelProps {
 type Tab = 'all' | 'pending' | 'add';
 
 export default function FriendsPanel({ onOpenDM }: FriendsPanelProps) {
+    const { phase: callPhase, startCall } = useCall();
     const [tab, setTab] = useState<Tab>('all');
     const [data, setData] = useState<FriendsData>({ friends: [], pendingSent: [], pendingReceived: [] });
     const [addUsername, setAddUsername] = useState('');
@@ -101,6 +103,10 @@ export default function FriendsPanel({ onOpenDM }: FriendsPanelProps) {
                                         <div className="friend-actions">
                                             <button className="btn btn-secondary btn-sm" onClick={() => onOpenDM(f)}>
                                                 💬 Message
+                                            </button>
+                                            <button className="btn btn-secondary btn-sm" onClick={() => startCall(f)}
+                                                disabled={callPhase !== 'idle'} title="Start a call">
+                                                📞 Call
                                             </button>
                                             <button className="btn btn-danger btn-sm" onClick={() => handleReject(f.friendshipId)}
                                                 title="Remove friend">
