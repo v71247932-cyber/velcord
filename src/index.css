@@ -1882,3 +1882,13 @@ html.desktop-app .viewer { top: 28px; }
 .shell-update strong { color: var(--text-primary); font-size: 13px; }
 .shell-update code { background: var(--bg-primary); border-radius: 6px; padding: 6px 8px; font-size: 11px; word-break: break-all; color: var(--text-primary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .shell-update button { align-self: flex-start; border: none; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 600; background: var(--blurple); color: #fff; cursor: pointer; }
+
+/* ---- Friend's banner behind their row in the sidebar ---- */
+.dm-item { position: relative; overflow: hidden; }
+.dm-item > * { position: relative; z-index: 1; }
+.dm-item > .dm-item-bg { position: absolute; inset: 0; z-index: 0; }
+.dm-item-bg::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(18,19,22,0.66), rgba(18,19,22,0.4)); transition: background 0.15s; }
+.dm-item:hover .dm-item-bg::after { background: linear-gradient(90deg, rgba(18,19,22,0.5), rgba(18,19,22,0.28)); }
+.dm-item.active .dm-item-bg::after { background: linear-gradient(90deg, rgba(18,19,22,0.34), rgba(18,19,22,0.16)); }
+.dm-item.active:has(.dm-item-bg) { box-shadow: 0 0 0 2px rgba(255,255,255,0.35) inset; }
+.dm-item:has(.dm-item-bg) .dm-name { color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.7); }

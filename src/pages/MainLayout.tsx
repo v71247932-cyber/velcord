@@ -342,6 +342,7 @@ export default function MainLayout() {
                             onClick={() => openDM(f)}
                             id={`dm-${f.id}`}
                         >
+                            {(f.bannerUrl || (f.bannerColor1 && f.bannerColor2)) && <div className="dm-item-bg" style={bannerStyle(f)} />}
                             <Avatar name={f.username} color={f.avatarColor} src={f.avatarUrl} size="sm" status={f.online ? 'online' : 'offline'} />
                             <div className="sidebar-user-details">
                                 <span className="dm-name">{f.username}{f.verified && <VerifiedBadge size={14} />}</span>

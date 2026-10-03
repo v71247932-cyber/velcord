@@ -138,6 +138,25 @@ async function handleSystemNotify(request: Request, env: Env): Promise<Response>
   return json({ id: msg.id, createdAt: msg.created_at, to: target.username }, 201);
 }
 
+// Delivery/read state of the notifications Velcord sent to one user (needs the secret key)
+async function handleSystemStatus(request: Request, env: Env): Promise<Response> {
+  const key = request.headers.get('X-System-Key');
+  if (!env.SYSTEM_KEY || !key || key !== env.SYSTEM_KEY) return err('Not found', 404);
+  const { to } = await request.json() as { to?: string };
+  const target = to ? await env.DB.prepare('SELECT id, username, last_seen FROM users WHERE username = ?').bind(to).first() as { id: number; username: string; last_seen: number | null } | null : null;
+  if (!target) return err('No such user', 404);
+  const sys = await env.DB.prepare('SELECT id FROM users WHERE username = ?').bind(SYSTEM_NAME).first() as { id: number } | null;
+  if (!sys) return json({ user: target.username, messages: [] });
+  const rows = await env.DB.prepare(`SELECT id, content, created_at, delivered_at, read_at FROM direct_messages
+    WHERE sender_id = ? AND receiver_id = ? ORDER BY id DESC LIMIT 20`).bind(sys.id, target.id).all();
+  return json({
+    user: target.username,
+    onlineNow: isOnline(target.last_seen),
+    lastSeen: target.last_seen,
+    messages: rows.results.map((r: any) => ({ id: r.id, text: String(r.content).slice(0, 80), sentAt: r.created_at, deliveredAt: r.delivered_at, readAt: r.read_at })),
+  });
+}
+
 // --- Avatars ---
 // Pictures are stored as data URLs. API responses never carry them: queries return a short
 // version token and the client loads /api/avatars/<id>?v=<token>, which the browser caches.
@@ -1115,6 +1134,7 @@ export default {
 
       // Official notifications (needs the secret key)
       if (path === '/api/system/notify' && request.method === 'POST') return handleSystemNotify(request, env);
+      if (path === '/api/system/status' && request.method === 'POST') return handleSystemStatus(request, env);
 
       // Video clips
       if (path === '/api/videos' && request.method === 'POST') return handleVideoInit(request, env);
