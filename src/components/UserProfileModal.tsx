@@ -3,7 +3,7 @@ import { api } from '../api';
 import type { FriendUser, Group, UserProfile } from '../api';
 import Avatar from './Avatar';
 import VerifiedBadge from './VerifiedBadge';
-import { MessageIcon, UserPlusIcon, CheckIcon, CloseIcon } from './Icons';
+import { MessageIcon, UserPlusIcon, CloseIcon } from './Icons';
 import { bannerStyle } from '../banner';
 import './userProfile.css';
 
@@ -104,7 +104,6 @@ export default function UserProfileModal({ userId, friends, groups, onClose, onM
                                     ) : (
                                         <button className="up-btn up-btn-primary" onClick={addFriend} disabled={busy}><UserPlusIcon size={17} /> Add friend</button>
                                     )}
-                                    {isFriend && <span className="up-icon-btn up-friend-mark" title="Friends"><CheckIcon size={17} /></span>}
                                     <div className="up-menu-wrap">
                                         <button className="up-icon-btn" onClick={e => { e.stopPropagation(); setMenu(m => !m); }} aria-label="More">⋯</button>
                                         {menu && (
