@@ -30,7 +30,7 @@
 button.up-icon-btn:hover { background: var(--bg-hover); }
 .up-friend-mark { color: #23a55a; cursor: default; }
 .up-menu-wrap { position: relative; }
-.up-menu { position: absolute; top: 46px; left: 0; z-index: 4; min-width: 170px; padding: 6px; border-radius: 10px; background: var(--bg-primary); border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+.up-menu { position: absolute; top: 46px; right: 0; z-index: 4; min-width: 170px; padding: 6px; border-radius: 10px; background: var(--bg-primary); border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
 .up-menu button { display: block; width: 100%; text-align: left; padding: 9px 10px; border: none; border-radius: 6px; background: none; color: var(--text-primary); font-size: 14px; cursor: pointer; }
 .up-menu button:hover { background: var(--bg-hover); }
 .up-menu button.danger { color: #ed4245; }
@@ -41,22 +41,22 @@ button.up-icon-btn:hover { background: var(--bg-hover); }
 .up-note::placeholder { color: var(--text-muted); }
 .up-note:focus { background: rgba(255, 255, 255, 0.04); padding-left: 8px; border-radius: 6px; }
 .up-right { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 0 28px; background: #000; }
-.up-tabs { display: flex; gap: 26px; padding-top: 28px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-right: 40px; }
-.up-tabs button { background: none; border: none; border-bottom: 2px solid transparent; padding: 0 0 14px; margin-bottom: -1px; color: var(--text-secondary); font-size: 17px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.up-tabs { display: flex; gap: 20px; padding-top: 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-right: 40px; }
+.up-tabs button { background: none; border: none; border-bottom: 2px solid transparent; padding: 0 0 12px; margin-bottom: -1px; color: var(--text-secondary); font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .up-tabs button:hover { color: var(--text-primary); }
 .up-tabs button.active { color: var(--text-primary); border-bottom-color: var(--text-primary); }
 .up-tab-body { flex: 1; overflow-y: auto; padding: 14px 0; }
 .up-empty { height: 100%; min-height: 240px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; color: var(--text-secondary); }
-.up-empty strong { font-size: 20px; color: var(--text-primary); font-weight: 600; }
-.up-empty span { font-size: 16px; max-width: 360px; }
+.up-empty strong { font-size: 16px; color: var(--text-primary); font-weight: 600; }
+.up-empty span { font-size: 14px; max-width: 360px; }
 .up-empty .up-btn { margin-top: 12px; }
 .up-row { display: flex; align-items: center; gap: 12px; padding: 10px 8px; border-radius: 10px; }
 .up-row:hover { background: rgba(255, 255, 255, 0.05); }
-.up-row-name { flex: 1; font-size: 16px; font-weight: 600; color: var(--text-primary); }
+.up-row-name { flex: 1; font-size: 14px; font-weight: 600; color: var(--text-primary); }
 @media (max-width: 760px) {
   .up-window { flex-direction: column; width: 100vw; height: 100dvh; border-radius: 0; overflow-y: auto; }
   .up-left { width: 100%; overflow: visible; }
   .up-right { padding: 0 18px 24px; min-height: 280px; }
   .up-tabs { gap: 16px; padding-top: 18px; overflow-x: auto; }
-  .up-tabs button { font-size: 15px; }
+  .up-tabs button { font-size: 13px; }
 }
