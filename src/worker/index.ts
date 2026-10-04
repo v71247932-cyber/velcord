@@ -195,41 +195,13 @@ async function handleSystemVideos(request: Request, env: Env): Promise<Response>
 // Each person keeps a list of GIFs (.gif, animated .webp or .png) and sends them from the GIF button.
 // The files live in Workers KV without expiry. Removing one only hides it from the list; the file stays
 // for as long as messages are kept (5 days), so GIFs already sent do not break.
-const GIF_MAX_BYTES = 8 * 1024 * 1024;
 const GIF_PER_USER = 40;
-const GIF_POOL_MAX = 120 * 1024 * 1024; // KV on the free plan holds 1 GB in total, clips may use 800 MB of it
 
-function sniffImage(b: Uint8Array): string | null {
-  const at = (i: number, ...v: number[]) => v.every((x, k) => b[i + k] === x);
-  if (b.length > 10 && at(0, 0x47, 0x49, 0x46, 0x38) && (b[4] === 0x37 || b[4] === 0x39) && b[5] === 0x61) return 'image/gif';
-  if (b.length > 10 && at(0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return 'image/png';
-  if (b.length > 12 && at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50)) return 'image/webp';
-  return null;
-}
-
+// GIFs are added from a link only; no file is stored for them any more (older stored GIFs are still served)
 async function handleGifUpload(request: Request, env: Env): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
-  if (!env.MEDIA) return err('Storage is not configured', 503);
-  const declared = parseInt(request.headers.get('Content-Length') || '0');
-  if (declared > GIF_MAX_BYTES) return err('GIF too large (max 8 MB)');
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.length === 0) return err('Empty file');
-  if (bytes.length > GIF_MAX_BYTES) return err('GIF too large (max 8 MB)');
-  const mime = sniffImage(bytes);
-  if (!mime) return err('Use a .gif, .webp or .png file');
-
-  const mine = await env.DB.prepare('SELECT COUNT(*) as c FROM gifs WHERE owner_id = ? AND removed_at IS NULL').bind(auth.userId).first() as { c: number };
-  if (mine.c >= GIF_PER_USER) return err(`Your list is full (${GIF_PER_USER} GIFs). Remove one first.`, 429);
-  const pool = await env.DB.prepare('SELECT COALESCE(SUM(size), 0) as s FROM gifs').first() as { s: number };
-  if (pool.s + bytes.length > GIF_POOL_MAX) return err('GIF storage is full right now.', 507);
-
-  let name = 'GIF';
-  try { name = decodeURIComponent(request.headers.get('X-Name') || '').replace(/\.[a-z0-9]{2,5}$/i, '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 60) || 'GIF'; } catch { /* keep default */ }
-  const id = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b => b.toString(16).padStart(2, '0')).join('');
-  await env.MEDIA.put(`gif:${id}`, bytes);
-  await env.DB.prepare('INSERT INTO gifs (id, owner_id, name, mime, size, origin) VALUES (?, ?, ?, ?, ?, ?)').bind(id, auth.userId, name, mime, bytes.length, id).run();
-  return json({ id, name, mime, size: bytes.length, origin: id, url: null }, 201);
+  return err('GIFs are added from a link now. Paste the link of a .gif.', 410);
 }
 
 async function handleGifList(request: Request, env: Env): Promise<Response> {
@@ -255,8 +227,7 @@ async function gifProtectedFor(env: Env, requesterId: number, gifIds: string[]):
 async function handleGifSave(request: Request, env: Env): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
-  if (!env.MEDIA) return err('Storage is not configured', 503);
-  const { gifId, url } = await request.json() as { gifId?: string; url?: string };
+  const { url } = await request.json() as { gifId?: string; url?: string };
 
   const mine = await env.DB.prepare('SELECT COUNT(*) as c FROM gifs WHERE owner_id = ? AND removed_at IS NULL').bind(auth.userId).first() as { c: number };
   const newId = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -273,21 +244,8 @@ async function handleGifSave(request: Request, env: Env): Promise<Response> {
     return json({ id: newId, name, mime: 'image/gif', size: 0, url, origin: newId, createdAt: Math.floor(Date.now() / 1000) }, 201);
   }
 
-  if (!gifId || !/^[a-f0-9]{32}$/.test(gifId)) return err('Missing GIF');
-  const src = await env.DB.prepare('SELECT id, name, mime, size, origin, url FROM gifs WHERE id = ?').bind(gifId).first() as { id: string; name: string; mime: string; size: number; origin: string | null; url: string | null } | null;
-  if (!src || src.url) return err('This GIF is no longer available', 404);
-  const origin = src.origin ?? src.id;
-  const have = await env.DB.prepare('SELECT id FROM gifs WHERE owner_id = ? AND origin = ? AND removed_at IS NULL').bind(auth.userId, origin).first() as { id: string } | null;
-  if (have) return json({ id: have.id, name: src.name, mime: src.mime, size: src.size, url: null, origin, createdAt: Math.floor(Date.now() / 1000) });
-  if (await gifProtectedFor(env, auth.userId, [src.id, origin])) return err('The owner protected this GIF. It cannot be copied.', 403);
-  if (mine.c >= GIF_PER_USER) return err(`Your list is full (${GIF_PER_USER} GIFs). Remove one first.`, 429);
-  const pool = await env.DB.prepare('SELECT COALESCE(SUM(size), 0) as s FROM gifs').first() as { s: number };
-  if (pool.s + src.size > GIF_POOL_MAX) return err('GIF storage is full right now.', 507);
-  const buf = await env.MEDIA.get(`gif:${src.id}`, 'arrayBuffer');
-  if (!buf) return err('This GIF is no longer available', 404);
-  await env.MEDIA.put(`gif:${newId}`, buf);
-  await env.DB.prepare('INSERT INTO gifs (id, owner_id, name, mime, size, origin) VALUES (?, ?, ?, ?, ?, ?)').bind(newId, auth.userId, src.name, src.mime, src.size, origin).run();
-  return json({ id: newId, name: src.name, mime: src.mime, size: src.size, url: null, origin, createdAt: Math.floor(Date.now() / 1000) }, 201);
+  // A GIF stored here (from before links only) is not copied any more; only links are saved
+  return err('This GIF cannot be copied. Save it from its link instead.', 410);
 }
 
 // Which original GIF each id in a message is a copy of (so the star can tell it is already in my list)
@@ -466,6 +424,7 @@ const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-System-Key,X-Name',
+  'Access-Control-Max-Age': '86400',
 };
 
 function json(data: unknown, status = 200): Response {
@@ -1273,7 +1232,7 @@ async function handleVideoChunk(request: Request, env: Env, id: string, n: numbe
   const body = await request.arrayBuffer();
   const expected = n === row.chunks - 1 ? row.size - n * VIDEO_CHUNK : VIDEO_CHUNK;
   if (body.byteLength !== expected) return err(`Chunk must be ${expected} bytes`);
-  await env.MEDIA.put(videoKey(id, n), body, { expirationTtl: VIDEO_TTL + 3600 });
+  await env.MEDIA.put(videoKey(id, n), body, { expirationTtl: VIDEO_TTL });
   return json({ ok: true });
 }
 

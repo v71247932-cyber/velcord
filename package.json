@@ -8,12 +8,13 @@
     "worker:dev": "wrangler dev --port 8787",
     "build": "npm run build:frontend && npm run build:worker",
     "build:frontend": "tsc -b && vite build",
-    "build:worker": "esbuild src/worker/index.ts --bundle --outfile=dist/_worker.js --platform=node --format=esm --minify --external:cloudflare:*",
+    "build:worker": "esbuild src/pages-redirect.ts --bundle --outfile=dist/_worker.js --platform=node --format=esm --minify",
     "lint": "eslint .",
     "preview": "vite preview",
     "db:init": "wrangler d1 execute velcord-db --file=./db/schema.sql",
     "db:init:local": "wrangler d1 execute velcord-db --local --file=./db/schema.sql",
-    "deploy": "npm run build && wrangler pages deploy dist --project-name=velcord"
+    "deploy": "npm run build && wrangler pages deploy dist --project-name=velcord",
+    "build:vm": "esbuild src/worker/index.ts --bundle --outfile=vm/worker.mjs --platform=node --format=esm --external:cloudflare:*"
   },
   "dependencies": {
     "react": "^19.2.4",

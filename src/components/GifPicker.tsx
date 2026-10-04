@@ -4,16 +4,15 @@ import { addRow, dropRow, useGifs } from '../gifStore';
 import { CloseIcon, PlusIcon } from './Icons';
 
 const BASE = import.meta.env.VITE_API_URL || '';
-const MAX_BYTES = 8 * 1024 * 1024;
 
-/** The person's own GIF list: upload files into it, click one to send it. */
+/** The person's own GIF list: paste a GIF link to save it, click one to send it. */
 /** `onPick` gets the text of the message to send: [gif:id] for a stored GIF, the address for a link GIF. */
 export default function GifPicker({ onPick, onClose }: { onPick: (content: string) => void; onClose: () => void }) {
     const { gifs, max, loaded } = useGifs();
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
     const box = useRef<HTMLDivElement>(null);
-    const fileRef = useRef<HTMLInputElement>(null);
+    const [link, setLink] = useState('');
 
     // Close on Escape or a click anywhere outside (the GIF button toggles it by itself)
     useEffect(() => {
@@ -27,22 +26,22 @@ export default function GifPicker({ onPick, onClose }: { onPick: (content: strin
         return () => { document.removeEventListener('keydown', key, true); document.removeEventListener('mousedown', down); };
     }, [onClose]);
 
-    async function upload(files: FileList | null) {
-        if (!files || files.length === 0) return;
+    async function addLink(e: React.FormEvent) {
+        e.preventDefault();
+        const text = link.trim();
+        if (!text || busy) return;
         setBusy(true);
         setError('');
         try {
-            for (const f of Array.from(files)) {
-                if (!/\.(gif|webp|png)$/i.test(f.name) && !/^image\/(gif|webp|png)$/.test(f.type)) { setError('Use a .gif, .webp or .png file.'); continue; }
-                if (f.size > MAX_BYTES) { setError(`"${f.name}" is too big. The limit is 8 MB.`); continue; }
-                const added = await api.uploadGif(f);
-                addRow(added);
-            }
-        } catch (e: any) {
-            setError(e.message || 'Upload failed');
+            let src = text;
+            // A Tenor page is not a picture: ask the server for the real GIF it shows
+            try { if (new URL(text).hostname.replace(/^www\./, '') === 'tenor.com') src = (await api.resolveGifLink(text)).src; } catch (err: any) { if (/tenor/i.test(text)) throw err; }
+            addRow(await api.saveGif({ url: src }));
+            setLink('');
+        } catch (err: any) {
+            setError(err.message || 'Could not save that link');
         } finally {
             setBusy(false);
-            if (fileRef.current) fileRef.current.value = '';
         }
     }
 
@@ -57,18 +56,18 @@ export default function GifPicker({ onPick, onClose }: { onPick: (content: strin
             <div className="gif-head">
                 <span className="gif-title">Your GIFs</span>
                 <span className="gif-count">{gifs.length}/{max}</span>
-                <button type="button" className="gif-upload" onClick={() => fileRef.current?.click()} disabled={busy || gifs.length >= max}>
-                    <PlusIcon size={14} /> {busy ? 'Uploading…' : 'Upload'}
-                </button>
-                <input ref={fileRef} type="file" accept="image/gif,image/webp,image/png,.gif,.webp,.png" multiple hidden onChange={e => upload(e.target.files)} />
             </div>
+            <form className="gif-link-form" onSubmit={addLink}>
+                <input value={link} onChange={e => setLink(e.target.value)} placeholder="Paste a GIF link (.gif) or a Tenor link" disabled={busy || gifs.length >= max} />
+                <button type="submit" className="gif-upload" disabled={busy || !link.trim() || gifs.length >= max}><PlusIcon size={14} /> {busy ? 'Saving…' : 'Add'}</button>
+            </form>
             {error && <div className="gif-error">{error}</div>}
             <div className="gif-grid">
                 {!loaded && <div className="gif-empty">Loading…</div>}
                 {loaded && gifs.length === 0 && (
                     <div className="gif-empty">
                         <strong>No GIFs yet</strong>
-                        <span>Upload a .gif file and it stays here, ready to send in one click.</span>
+                        <span>Paste the link of a GIF and it stays here, ready to send in one click.</span>
                     </div>
                 )}
                 {gifs.map(g => (

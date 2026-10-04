@@ -111,18 +111,6 @@ export const api = {
 
     getGifs: () => request<{ max: number; gifs: GifItem[] }>('GET', '/api/gifs'),
 
-    uploadGif: async (file: File) => {
-        const token = localStorage.getItem('velcord_token');
-        const res = await fetch(`${BASE}/api/gifs`, {
-            method: 'POST',
-            headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-Name': encodeURIComponent(file.name), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-            body: file,
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error((data as any).error || 'Upload failed');
-        return data as GifItem;
-    },
-
     saveGif: (arg: { gifId?: string; url?: string }) => request<GifItem>('POST', '/api/gifs/save', arg),
 
     gifOrigins: (ids: string[]) => request<Record<string, any>>('POST', '/api/gifs/origins', { ids }), // id -> origin; "__protected" lists the ids that cannot be copied

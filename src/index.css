@@ -2001,3 +2001,7 @@ html.desktop-app .viewer { top: 28px; }
 .call-icon-btn.is-off { background: rgba(242,63,67,0.16); color: #f4595d; }
 .call-icon-btn.is-off:hover:not(:disabled) { background: rgba(242,63,67,0.26); }
 .call-buttons .call-btn { flex: 1 1 0; }
+
+.gif-link-form { display: flex; gap: 8px; padding: 0 12px 8px; }
+.gif-link-form input { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: var(--bg-primary); color: var(--text-primary); font-size: 13px; outline: none; }
+.gif-link-form input:focus { border-color: var(--blurple); }

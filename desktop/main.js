@@ -8,7 +8,8 @@ const {
 const path = require('path');
 const fs = require('fs');
 
-const DEFAULT_URL = 'https://idk-site.pages.dev/app';
+const DEFAULT_URL = 'https://velcord.scrisoricupovesti.ro/app';
+const OLD_ORIGIN = 'https://idk-site.pages.dev'; // the old address now redirects to the new one
 
 function readConfig() {
     try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')); }
@@ -66,7 +67,7 @@ function createWindow() {
         return { action: 'deny' };
     });
     win.webContents.on('will-navigate', (e, url) => {
-        if (!url.startsWith('file:') && new URL(url).origin !== ORIGIN) {
+        if (!url.startsWith('file:') && new URL(url).origin !== ORIGIN && new URL(url).origin !== OLD_ORIGIN) {
             e.preventDefault();
             if (/^https?:/i.test(url)) shell.openExternal(url);
         }
