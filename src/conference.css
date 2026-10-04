@@ -84,7 +84,19 @@
 
 .conf-size { border: none; border-radius: 8px; padding: 4px 10px; background: var(--bg-accent); color: var(--text-primary); font-size: 12px; font-weight: 600; cursor: pointer; }
 .conf-size:hover { background: var(--bg-hover); }
-.conf-window.mini { width: min(420px, calc(100vw - 32px)); }
-.conf-window.mini .conf-grid { grid-template-columns: repeat(3, 1fr); }
-.conf-window.mini .conf-share { max-height: 30vh; }
-.conf-window.mini .conf-controls .call-btn { min-width: 0; padding: 0 12px; }
+/* Small call window: it sits in the empty space of the right-hand column, so it never covers the chat or the message box */
+.conf-window:not(.has-share) { width: 264px; right: 8px; bottom: 8px; padding: 10px; gap: 8px; max-height: calc(100vh - 16px); }
+.conf-window:not(.has-share) .conf-stage { overflow-y: auto; max-height: 46vh; }
+.conf-window:not(.has-share) .conf-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 6px; }
+.conf-window:not(.has-share) .conf-share { max-height: 22vh; }
+.conf-window:not(.has-share) .conf-tile { border-radius: 8px; }
+.conf-window:not(.has-share) .conf-placeholder .avatar-xl { width: 40px; height: 40px; font-size: 18px; }
+.conf-window:not(.has-share) .conf-note { display: none; }
+.conf-window:not(.has-share) .conf-controls { gap: 6px; }
+.conf-window:not(.has-share) .conf-controls .call-btn { min-width: 0; flex: 1 1 auto; padding: 0 10px; font-size: 13px; }
+.conf-window:not(.has-share) .conf-controls .call-icon-btn { width: 38px; height: 38px; }
+/* Without the right-hand column (narrow window) only the title and the buttons stay */
+@media (min-width: 769px) and (max-width: 1000px) {
+  .conf-window:not(.has-share) .conf-stage { display: none; }
+  .conf-window:not(.has-share) { width: min(420px, calc(100vw - 16px)); }
+}
