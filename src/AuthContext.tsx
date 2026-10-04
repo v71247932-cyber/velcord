@@ -21,19 +21,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         const saved = localStorage.getItem('velcord_token');
-        if (saved) {
-            setToken(saved);
+        if (!saved) { setLoading(false); return; }
+        setToken(saved);
+        let alive = true;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        // Only a clear "401 Unauthorized" means the token is bad. A network error or a server error
+        // (for example the database being over its limit) keeps the login and tries again.
+        const check = () => {
             api.me().then(u => {
+                if (!alive) return;
                 setUser(u);
                 setLoading(false);
-            }).catch(() => {
-                localStorage.removeItem('velcord_token');
-                setToken(null);
-                setLoading(false);
+            }).catch((e: any) => {
+                if (!alive) return;
+                if (e?.status === 401) {
+                    localStorage.removeItem('velcord_token');
+                    setToken(null);
+                    setLoading(false);
+                } else {
+                    timer = setTimeout(check, 3000);
+                }
             });
-        } else {
-            setLoading(false);
-        }
+        };
+        check();
+        return () => { alive = false; if (timer) clearTimeout(timer); };
     }, []);
 
     const login = (t: string, u: User) => {

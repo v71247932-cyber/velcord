@@ -12,8 +12,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
         headers: authHeaders(),
         body: body ? JSON.stringify(body) : undefined,
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error((data as any).error || 'Request failed');
+    let data: any = null;
+    try { data = await res.json(); } catch { /* not JSON (an error page from the platform) */ }
+    if (!res.ok) throw Object.assign(new Error(data?.error || 'Request failed'), { status: res.status });
     return data as T;
 }
 
