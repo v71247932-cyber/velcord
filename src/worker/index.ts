@@ -583,6 +583,50 @@ async function handleGetFriends(request: Request, env: Env): Promise<Response> {
   });
 }
 
+// Everything the profile window shows about one person, as seen by the requester
+async function handleUserProfile(request: Request, env: Env, targetId: number): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const me = auth.userId;
+  const u = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV('u')} as avatar_url, ${BANNER_COLS('u')}, u.last_seen, u.created_at FROM users u WHERE u.id = ?`)
+    .bind(targetId).first() as any;
+  if (!u) return err('User not found', 404);
+  const FRIENDS_OF = `SELECT CASE WHEN requester_id = ?1 THEN addressee_id ELSE requester_id END AS fid FROM friendships WHERE status = 'accepted' AND (requester_id = ?1 OR addressee_id = ?1)`;
+  const [fr, note, mutualFriends, mutualGroups] = await env.DB.batch([
+    env.DB.prepare(`SELECT id, status, created_at FROM friendships WHERE (requester_id = ?1 AND addressee_id = ?2) OR (requester_id = ?2 AND addressee_id = ?1)`).bind(me, targetId),
+    env.DB.prepare('SELECT note FROM user_notes WHERE owner_id = ? AND target_id = ?').bind(me, targetId),
+    env.DB.prepare(`SELECT u.id, u.username, u.avatar_color, ${AV('u')} as avatar_url FROM users u
+      WHERE u.id IN (${FRIENDS_OF}) AND u.id IN (SELECT CASE WHEN requester_id = ?2 THEN addressee_id ELSE requester_id END FROM friendships WHERE status = 'accepted' AND (requester_id = ?2 OR addressee_id = ?2))
+      ORDER BY u.username COLLATE NOCASE`).bind(me, targetId),
+    env.DB.prepare(`SELECT g.id, g.name, ${AV('g')} as avatar_url FROM groups g
+      WHERE g.id IN (SELECT group_id FROM group_members WHERE user_id = ?1) AND g.id IN (SELECT group_id FROM group_members WHERE user_id = ?2)
+      ORDER BY g.name COLLATE NOCASE`).bind(me, targetId),
+  ]);
+  const f = fr.results[0] as any;
+  return json({
+    id: u.id, username: u.username, avatarColor: u.avatar_color,
+    avatarUrl: avatarPath('avatars', u.id, u.avatar_url),
+    ...bannerFields(u),
+    verified: isVerified(u.username),
+    online: isVerified(u.username) || isOnline(u.last_seen),
+    memberSince: u.created_at,
+    friendship: f ? { id: f.id, status: f.status, since: f.created_at } : null,
+    note: (note.results[0] as any)?.note ?? '',
+    mutualFriends: mutualFriends.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: avatarPath('avatars', r.id, r.avatar_url) })),
+    mutualGroups: mutualGroups.results.map((r: any) => ({ id: r.id, name: r.name, avatarUrl: avatarPath('group-avatars', r.id, r.avatar_url) })),
+  });
+}
+
+async function handleSetNote(request: Request, env: Env, targetId: number): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const { note } = await request.json() as { note?: string };
+  const text = (note ?? '').slice(0, 256);
+  if (text.trim()) await env.DB.prepare('INSERT INTO user_notes (owner_id, target_id, note) VALUES (?, ?, ?) ON CONFLICT(owner_id, target_id) DO UPDATE SET note = excluded.note').bind(auth.userId, targetId, text).run();
+  else await env.DB.prepare('DELETE FROM user_notes WHERE owner_id = ? AND target_id = ?').bind(auth.userId, targetId).run();
+  return json({ success: true });
+}
+
 async function handleAddFriend(request: Request, env: Env): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
@@ -993,6 +1037,12 @@ function ensureSchema(env: Env): Promise<void> {
           origin TEXT
         )`),
         env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_gifs_owner ON gifs(owner_id, removed_at)'),
+        env.DB.prepare(`CREATE TABLE IF NOT EXISTS user_notes (
+          owner_id INTEGER NOT NULL,
+          target_id INTEGER NOT NULL,
+          note TEXT NOT NULL,
+          PRIMARY KEY (owner_id, target_id)
+        )`),
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS call_signals (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           from_id INTEGER NOT NULL,
@@ -1502,6 +1552,13 @@ export default {
       // Profile/User routes
       if (path === '/api/me' && request.method === 'GET') return handleMe(request, env);
       if (path === '/api/me' && request.method === 'PATCH') return handleUpdateProfile(request, env);
+
+      const profileRoute = path.match(/^\/api\/users\/(\d+)\/(profile|note)$/);
+      if (profileRoute) {
+        const id = parseInt(profileRoute[1]);
+        if (profileRoute[2] === 'profile' && request.method === 'GET') return handleUserProfile(request, env, id);
+        if (profileRoute[2] === 'note' && request.method === 'PUT') return handleSetNote(request, env, id);
+      }
 
       // Friend routes
       if (path === '/api/friends' && request.method === 'GET') return handleGetFriends(request, env);

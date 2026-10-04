@@ -16,6 +16,8 @@ import { onLive, startLive, stopLive } from '../live';
 import BannerCropModal from '../components/BannerCropModal';
 import { askNotificationPermissionOnFirstClick, notify, setBadge, isDesktopApp, isOldDesktopShell, isMobileDevice, isInstalledPwa, isIOS, INSTALL_COMMAND } from '../notify';
 import { PhoneIcon, VideoIcon, UsersIcon, PlusIcon } from '../components/Icons';
+import UserProfileModal from '../components/UserProfileModal';
+import { PROFILE_EVENT } from '../components/Avatar';
 import ProfileCard from '../components/ProfileCard';
 import { useConference } from '../ConferenceContext';
 import GroupMembersPanel from '../components/GroupMembersPanel';
@@ -32,6 +34,12 @@ export default function MainLayout() {
     const { phase: callPhase, startCall, muted, deafened, toggleMute, toggleDeafen } = useCall();
     const [view, setView] = useState<View>({ type: 'friends' });
     const [groups, setGroups] = useState<Group[]>([]);
+    const [profileId, setProfileId] = useState<number | null>(null); // whose profile window is open
+    useEffect(() => {
+        const open = (e: Event) => setProfileId((e as CustomEvent<number>).detail);
+        window.addEventListener(PROFILE_EVENT, open);
+        return () => window.removeEventListener(PROFILE_EVENT, open);
+    }, []);
     const [friendsData, setFriendsData] = useState<FriendsData>({ friends: [], pendingSent: [], pendingReceived: [] });
     const [showCreateGroup, setShowCreateGroup] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -439,7 +447,7 @@ export default function MainLayout() {
                         <div className={`chat-split ${showInfo ? 'info-open' : ''}`}>
                             <div className="chat-main">
                                 <div className="content-header">
-                                    <Avatar name={live.username} color={live.avatarColor} src={live.avatarUrl} size="sm" zoomable status={live.online ? 'online' : 'offline'} />
+                                    <Avatar name={live.username} color={live.avatarColor} src={live.avatarUrl} size="sm" zoomable userId={live.id} status={live.online ? 'online' : 'offline'} />
                                     <span className="header-name">{live.username}{live.verified && <VerifiedBadge size={16} />}</span>
                                     {isFriend && !live.verified && (
                                         <button
@@ -504,6 +512,17 @@ export default function MainLayout() {
                 )}
             </main>
 
+            {profileId !== null && (
+                <UserProfileModal
+                    userId={profileId}
+                    friends={friendsData.friends}
+                    groups={groups}
+                    onClose={() => setProfileId(null)}
+                    onMessage={openDM}
+                    onOpenGroup={openGroup}
+                    onChanged={load}
+                />
+            )}
             {showGroupSettings && currentGroup && (
                 <GroupSettingsModal
                     group={currentGroup}

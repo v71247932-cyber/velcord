@@ -1,5 +1,10 @@
 import { useState } from 'react';
 
+export const PROFILE_EVENT = 'velcord:open-profile';
+export function openProfile(userId: number) {
+    window.dispatchEvent(new CustomEvent<number>(PROFILE_EVENT, { detail: userId }));
+}
+
 interface AvatarProps {
     name: string;
     color: string;
@@ -7,11 +12,13 @@ interface AvatarProps {
     size?: 'sm' | 'md' | 'lg' | 'xl';
     /** Click opens the picture in a larger view */
     zoomable?: boolean;
+    /** With zoomable: a click opens this person's profile window instead of the picture */
+    userId?: number;
     /** Shows a green (online) or grey (offline) dot in the corner */
     status?: 'online' | 'offline';
 }
 
-export default function Avatar({ name, color, src, size = 'md', zoomable = false, status }: AvatarProps) {
+export default function Avatar({ name, color, src, size = 'md', zoomable = false, userId, status }: AvatarProps) {
     const [open, setOpen] = useState(false);
     const letter = name.charAt(0).toUpperCase();
 
@@ -20,7 +27,7 @@ export default function Avatar({ name, color, src, size = 'md', zoomable = false
             className={`avatar avatar-${size} ${zoomable ? 'avatar-zoomable' : ''}`}
             style={{ background: color, overflow: 'hidden' }}
             title={name}
-            onClick={zoomable ? (e) => { e.stopPropagation(); setOpen(true); } : undefined}
+            onClick={zoomable ? (e) => { e.stopPropagation(); if (userId) openProfile(userId); else setOpen(true); } : undefined}
         >
             {src ? (
                 <img src={src} alt={name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />

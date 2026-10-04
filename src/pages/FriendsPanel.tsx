@@ -104,7 +104,7 @@ export default function FriendsPanel({ onOpenDM }: FriendsPanelProps) {
                                         onClick={() => onOpenDM(f)}
                                         onKeyDown={e => { if (e.key === 'Enter' && e.target === e.currentTarget) onOpenDM(f); }}
                                     >
-                                        <Avatar name={f.username} color={f.avatarColor} src={f.avatarUrl} size="md" zoomable status={f.online ? 'online' : 'offline'} />
+                                        <Avatar name={f.username} color={f.avatarColor} src={f.avatarUrl} size="md" zoomable userId={f.id} status={f.online ? 'online' : 'offline'} />
                                         <div className="friend-info">
                                             <div className="friend-name">{f.username}{f.verified && <VerifiedBadge size={14} />}</div>
                                             <div className="friend-status">{f.online ? 'Online' : 'Offline'}</div>

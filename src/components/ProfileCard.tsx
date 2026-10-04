@@ -19,7 +19,7 @@ export default function ProfileCard({ friend, onCall, onVideoCall, callDisabled 
             <div className="profile-card">
                 <div className="profile-card-banner" style={bannerStyle(friend)} />
                 <div className="profile-card-avatar">
-                    <Avatar name={friend.username} color={friend.avatarColor} src={friend.avatarUrl} size="xl" zoomable status={online ? 'online' : 'offline'} />
+                    <Avatar name={friend.username} color={friend.avatarColor} src={friend.avatarUrl} size="xl" zoomable userId={friend.id} status={online ? 'online' : 'offline'} />
                 </div>
                 <div className="profile-card-body">
                     <div className="profile-card-name">{friend.username}{friend.verified && <VerifiedBadge size={18} />}</div>

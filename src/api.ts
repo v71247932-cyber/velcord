@@ -133,6 +133,10 @@ export const api = {
     callPoll: (after: number, conf?: number) =>
         request<{ now: number; lastId?: number; roster?: ConfPerson[]; signals: CallSignal[] }>('GET', after < 0 ? '/api/calls/poll?init=1' : `/api/calls/poll?after=${after}${conf ? `&conf=${conf}` : ''}`),
 
+    getUserProfile: (id: number) => request<UserProfile>('GET', `/api/users/${id}/profile`),
+
+    setUserNote: (id: number, note: string) => request<{ success: boolean }>('PUT', `/api/users/${id}/note`, { note }),
+
     updateBanner: (patch: { bannerUrl?: string | null; bannerColors?: [string, string] | null }) =>
         request<User>('PATCH', '/api/me', patch),
 
@@ -244,4 +248,23 @@ export interface Group {
     memberCount?: number;
     /** how many people are in a conference call of this group right now */
     callCount?: number;
+}
+
+export interface UserProfile {
+    id: number;
+    username: string;
+    avatarColor: string;
+    avatarUrl?: string | null;
+    bannerUrl?: string | null;
+    bannerColor1?: string | null;
+    bannerColor2?: string | null;
+    verified?: boolean;
+    online: boolean;
+    /** unix seconds */
+    memberSince: number;
+    friendship: { id: number; status: 'pending' | 'accepted'; since: number } | null;
+    /** private note the viewer wrote about this person */
+    note: string;
+    mutualFriends: { id: number; username: string; avatarColor: string; avatarUrl?: string | null }[];
+    mutualGroups: { id: number; name: string; avatarUrl?: string | null }[];
 }

@@ -120,6 +120,7 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
                     <div className="msg-avatar-col">
                         <Avatar
                             zoomable
+                            userId={isMe ? undefined : msg.sender.id}
                             name={msg.sender.username}
                             color={msg.sender.avatarColor}
                             src={msg.sender.avatarUrl}
