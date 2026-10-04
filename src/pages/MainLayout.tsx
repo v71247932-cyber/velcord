@@ -327,12 +327,6 @@ export default function MainLayout() {
                         <button onClick={() => startCall(currentFriend, { video: true })} disabled={callPhase !== 'idle'} aria-label="Video call"><VideoIcon size={20} /></button>
                     </div>
                 )}
-                {view.type === 'group' && currentGroup && conference.activeGroupId !== currentGroup.id && (
-                    <div className="mobile-actions">
-                        <button onClick={() => conference.startGroupCall(currentGroup)} disabled={callPhase !== 'idle' || conference.activeGroupId !== null} aria-label="Group call"><PhoneIcon size={20} /></button>
-                        <button onClick={() => conference.startGroupCall(currentGroup, true)} disabled={callPhase !== 'idle' || conference.activeGroupId !== null} aria-label="Group video call"><VideoIcon size={20} /></button>
-                    </div>
-                )}
                 {(view.type === 'dm' || view.type === 'group') && (
                     <button className={`mobile-info-btn ${showInfo ? 'on' : ''}`} onClick={() => setShowInfo(v => !v)} aria-label="Info">
                         <UsersIcon size={20} />
@@ -557,18 +551,7 @@ export default function MainLayout() {
                                     <span className="header-chevron">▾</span>
                                 </div>
                                 {activeText && <span className="header-channel"># {activeText.name}</span>}
-                                {conference.activeGroupId === currentGroup.id ? (
-                                    <span className="header-in-call">● You are in the call</span>
-                                ) : (
-                                    <>
-                                        <button className="header-call-btn" onClick={() => conference.startGroupCall(currentGroup)} disabled={callPhase !== 'idle' || conference.activeGroupId !== null} title="Start a group call">
-                                            <PhoneIcon size={15} /> {(currentGroup.callCount || 0) > 0 ? 'Join call' : 'Call'}
-                                        </button>
-                                        <button className="header-call-btn header-video-btn" onClick={() => conference.startGroupCall(currentGroup, true)} disabled={callPhase !== 'idle' || conference.activeGroupId !== null} title="Start a group video call">
-                                            <VideoIcon size={15} /> Video
-                                        </button>
-                                    </>
-                                )}
+                                {conference.activeGroupId === currentGroup.id && <span className="header-in-call">● You are in the call</span>}
                             </div>
                             {(currentGroup.callCount || 0) > 0 && conference.activeGroupId !== currentGroup.id && (
                                 <div className="conf-banner">
