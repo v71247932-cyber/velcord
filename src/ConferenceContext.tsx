@@ -249,7 +249,13 @@ export function ConferenceProvider({ children }: { children: ReactNode }) {
 
                     <div className="conf-stage">
                         {sharer && (
-                            <div className="conf-share">
+                            <div
+                                className="conf-share"
+                                onClick={() => { if (!expanded) setExpanded(true); }}
+                                onDoubleClick={() => { if (expanded) setExpanded(false); }}
+                                title={expanded ? 'Double-click to make it smaller' : 'Click to make it bigger'}
+                                style={{ cursor: expanded ? 'zoom-out' : 'zoom-in' }}
+                            >
                                 <TileVideo stream={e.streamFor(sharer.id, 'screen')} />
                                 <div className="conf-label"><span>{sharer.user.username} is sharing their screen</span></div>
                             </div>

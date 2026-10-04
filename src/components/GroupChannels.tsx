@@ -124,15 +124,17 @@ export default function GroupChannels({ group, channels, activeTextId, isOwner, 
             {voice.map(c => {
                 const here = conference.activeRoomId === c.id;
                 const people = c.participants ?? [];
+                // The room name and the people in it do the same thing: join, or show the shared screen big when already in
+                const pick = () => {
+                    if (here) { conference.setExpanded(true); return; }
+                    conference.join(c.id, { groupId: group.id, groupName: group.name, channelName: c.name });
+                    onPicked?.();
+                };
                 return (
                     <div key={c.id} className="chan-voice">
                         <div
                             className={`chan-row voice ${here ? 'joined' : ''}`}
-                            onClick={() => {
-                                if (here) { conference.setExpanded(true); return; } // clicking the room you are in shows the shared screen big again
-                                conference.join(c.id, { groupId: group.id, groupName: group.name, channelName: c.name });
-                                onPicked?.();
-                            }}
+                            onClick={pick}
                             title={here ? 'You are in this channel' : 'Join the voice channel'}
                         >
                             <SpeakerIcon size={16} className="chan-icon" />
@@ -142,7 +144,7 @@ export default function GroupChannels({ group, channels, activeTextId, isOwner, 
                         {people.length > 0 && (
                             <div className="chan-people">
                                 {people.map(p => (
-                                    <div key={p.id} className="chan-person">
+                                    <div key={p.id} className="chan-person" onClick={pick} style={{ cursor: 'pointer' }}>
                                         <Avatar name={p.username} color={p.avatarColor} src={p.avatarUrl ?? undefined} size="sm" />
                                         <span>{p.username}</span>
                                         {p.sharing && <span className="chan-live" title="Sharing their screen">LIVE</span>}
