@@ -1125,6 +1125,7 @@ function ensureSchema(env: Env): Promise<void> {
           PRIMARY KEY (group_id, user_id)
         )`),
         env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_dm_receiver ON direct_messages(receiver_id, id)'),
+        env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_dm_sender ON direct_messages(sender_id, id)'),
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS typing (
           k TEXT PRIMARY KEY,
           from_id INTEGER NOT NULL,
@@ -1330,7 +1331,7 @@ async function readMarks(env: Env, me: number): Promise<{ core: string; ty: numb
     (SELECT COALESCE(MAX(id), 0) FROM direct_messages WHERE receiver_id = ?) AS dm,
     (SELECT COALESCE(MAX(gm.id), 0) FROM group_messages gm WHERE gm.group_id IN (SELECT group_id FROM group_members WHERE user_id = ?)) AS grp,
     (SELECT COALESCE(MAX(id), 0) FROM call_signals WHERE to_id = ?) AS sig,
-    (SELECT COALESCE(MAX(MAX(COALESCE(delivered_at, 0), COALESCE(read_at, 0))), 0) FROM direct_messages WHERE sender_id = ?) AS st,
+    (SELECT COALESCE(MAX(MAX(COALESCE(delivered_at, 0), COALESCE(read_at, 0))), 0) FROM (SELECT delivered_at, read_at FROM direct_messages WHERE sender_id = ? ORDER BY id DESC LIMIT 30)) AS st,
     (SELECT COALESCE(MAX(at), 0) FROM typing WHERE at > ? AND from_id != ?
        AND (to_id = ? OR group_id IN (SELECT group_id FROM group_members WHERE user_id = ?))) AS ty
   `).bind(me, me, me, me, cutoff, me, me, me).first() as { dm: number; grp: number; sig: number; st: number; ty: number };
@@ -1360,8 +1361,8 @@ async function handleWait(request: Request, env: Env): Promise<Response> {
   let cur = await readMarks(env, me);
   const valid = !!known && /^\d+\.\d+\.\d+\.\d+$/.test(known) && !!knownTy && /^\d+$/.test(knownTy);
   if (!valid || known !== cur.core || knownTy !== String(cur.ty)) return answer(cur);
-  for (let i = 0; i < 20; i++) {
-    await new Promise(r => setTimeout(r, 600));
+  for (let i = 0; i < 6; i++) {
+    await new Promise(r => setTimeout(r, 2000));
     cur = await readMarks(env, me);
     if (cur.core !== known || String(cur.ty) !== knownTy) break;
   }
