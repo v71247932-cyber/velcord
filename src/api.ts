@@ -140,6 +140,8 @@ export const api = {
     updateBanner: (patch: { bannerUrl?: string | null; bannerColors?: [string, string] | null }) =>
         request<User>('PATCH', '/api/me', patch),
 
+    setAppearOffline: (appearOffline: boolean) => request<User>('PATCH', '/api/me', { appearOffline }),
+
     updateProfile: (username?: string, avatarUrl?: string | null, gifsProtected?: boolean) =>
         request<User>('PATCH', '/api/me', { username, avatarUrl, gifsProtected }),
 };
@@ -150,6 +152,8 @@ export interface User {
     avatarColor: string;
     /** nobody else can copy this person's GIFs into their own list */
     gifsProtected?: boolean;
+    /** the person chose to look offline to everybody else */
+    appearOffline?: boolean;
     /** blue check next to the name (Velcord and the test account) */
     tick?: boolean;
     /** this account is linked to another one and can switch to it */

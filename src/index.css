@@ -2005,3 +2005,10 @@ html.desktop-app .viewer { top: 28px; }
 .gif-link-form { display: flex; gap: 8px; padding: 0 12px 8px; }
 .gif-link-form input { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: var(--bg-primary); color: var(--text-primary); font-size: 13px; outline: none; }
 .gif-link-form input:focus { border-color: var(--blurple); }
+
+.status-pick { margin: 4px 0 14px; }
+.status-pick-row { display: flex; gap: 8px; margin: 6px 0; }
+.status-pick-btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 38px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08); background: var(--bg-secondary); color: var(--text-primary); font-size: 14px; font-weight: 600; cursor: pointer; }
+.status-pick-btn:hover { background: var(--bg-hover); }
+.status-pick-btn.active { background: var(--blurple); border-color: transparent; color: #fff; }
+.status-pick small { color: var(--text-muted); font-size: 12px; }

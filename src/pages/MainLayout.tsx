@@ -458,10 +458,10 @@ export default function MainLayout() {
                         <div className="user-bar-bg" style={bannerStyle(user!)} />
                     )}
                     <div className="user-bar-main" onClick={() => setShowProfileMenu(true)} title="Profile settings">
-                        <Avatar name={user!.username} color={user!.avatarColor} src={user!.avatarUrl} size="md" status="online" />
+                        <Avatar name={user!.username} color={user!.avatarColor} src={user!.avatarUrl} size="md" status={user!.appearOffline ? 'offline' : 'online'} />
                         <div className="user-info">
                             <div className="user-name">{user!.username}</div>
-                            <div className="user-tag">{deafened ? 'Deafened' : muted ? 'Muted' : 'Online'}</div>
+                            <div className="user-tag">{deafened ? 'Deafened' : muted ? 'Muted' : user!.appearOffline ? 'Appearing offline' : 'Online'}</div>
                         </div>
                     </div>
                     <button className={`user-bar-btn ${muted || deafened ? 'is-off' : ''}`} onClick={toggleMute} title={muted || deafened ? 'Unmute' : 'Mute'}>
@@ -650,6 +650,24 @@ export default function MainLayout() {
                                             navigator.clipboard?.writeText(INSTALL_COMMAND).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1800); }).catch(() => {});
                                         }}>{copied ? 'Copied' : 'Copy'}</button>
                                     </div>
+                                </div>
+                            )}
+
+                            {user?.username.toLowerCase() === 'idk' && (
+                                <div className="status-pick">
+                                    <div className="desktop-install-title">Status</div>
+                                    <div className="status-pick-row">
+                                        {([false, true] as const).map(off => (
+                                            <button
+                                                key={String(off)} type="button"
+                                                className={`status-pick-btn ${!!user.appearOffline === off ? 'active' : ''}`}
+                                                onClick={async () => { try { updateUser(await api.setAppearOffline(off)); } catch { /* keep the old status */ } }}
+                                            >
+                                                <span className={`status-dot-inline status-${off ? 'offline' : 'online'}`} /> {off ? 'Offline' : 'Online'}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <small>Offline: everybody else sees you as offline, you can still use everything.</small>
                                 </div>
                             )}
 

@@ -123,7 +123,7 @@ async function handleSystemStatus(request, env) {
   const key = request.headers.get("X-System-Key");
   if (!env.SYSTEM_KEY || !key || key !== env.SYSTEM_KEY) return err("Not found", 404);
   const { to } = await request.json();
-  const target = to ? await env.DB.prepare("SELECT id, username, last_seen FROM users WHERE username = ?").bind(to).first() : null;
+  const target = to ? await env.DB.prepare("SELECT id, username, last_seen, appear_offline FROM users WHERE username = ?").bind(to).first() : null;
   if (!target) return err("No such user", 404);
   const sys = await env.DB.prepare("SELECT id FROM users WHERE username = ?").bind(SYSTEM_NAME).first();
   if (!sys) return json({ user: target.username, messages: [] });
@@ -131,7 +131,7 @@ async function handleSystemStatus(request, env) {
     WHERE sender_id = ? AND receiver_id = ? ORDER BY id DESC LIMIT 20`).bind(sys.id, target.id).all();
   return json({
     user: target.username,
-    onlineNow: isOnline(target.last_seen),
+    onlineNow: isOnline(target.last_seen, target.appear_offline),
     lastSeen: target.last_seen,
     messages: rows.results.map((r) => ({ id: r.id, text: String(r.content).slice(0, 80), sentAt: r.created_at, deliveredAt: r.delivered_at, readAt: r.read_at }))
   });
@@ -289,10 +289,10 @@ async function handleSwitchAccount(request, env) {
   if (!auth) return err("Unauthorized", 401);
   const other = await linkedAccount(env, auth.userId);
   if (!other) return err("This account has nothing to switch to", 403);
-  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV("users")} as avatar_url, ${BANNER_COLS("users")}, gifs_protected FROM users WHERE id = ?`).bind(other.id).first();
+  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV("users")} as avatar_url, ${BANNER_COLS("users")}, gifs_protected, appear_offline FROM users WHERE id = ?`).bind(other.id).first();
   if (!user) return err("Account not found", 404);
   const token = await signJWT({ userId: user.id, username: user.username }, env.JWT_SECRET);
-  return json({ token, user: { id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath("avatars", user.id, user.avatar_url), ...bannerFields(user), gifsProtected: !!user.gifs_protected, tick: hasTick(user.username), canSwitch: true } });
+  return json({ token, user: { id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath("avatars", user.id, user.avatar_url), ...bannerFields(user), gifsProtected: !!user.gifs_protected, appearOffline: !!user.appear_offline, tick: hasTick(user.username), canSwitch: true } });
 }
 async function handleSystemTestAccount(request, env) {
   const key = request.headers.get("X-System-Key");
@@ -381,25 +381,30 @@ async function handleLogin(request, env) {
   const { username, password } = await request.json();
   if (!username || !password) return err("Username and password are required");
   const user = await env.DB.prepare(
-    `SELECT id, username, password_hash, avatar_color, ${AV("users")} as avatar_url, ${BANNER_COLS("users")}, gifs_protected FROM users WHERE username = ?`
+    `SELECT id, username, password_hash, avatar_color, ${AV("users")} as avatar_url, ${BANNER_COLS("users")}, gifs_protected, appear_offline FROM users WHERE username = ?`
   ).bind(username).first();
   if (!user) return err("Invalid username or password", 401);
   const ok = await verifyPassword(password, user.password_hash);
   if (!ok) return err("Invalid username or password", 401);
   const token = await signJWT({ userId: user.id, username: user.username }, env.JWT_SECRET);
-  return json({ token, user: { id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath("avatars", user.id, user.avatar_url), ...bannerFields(user), gifsProtected: !!user.gifs_protected, tick: hasTick(user.username), canSwitch: !!await linkedAccount(env, user.id) } });
+  return json({ token, user: { id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath("avatars", user.id, user.avatar_url), ...bannerFields(user), gifsProtected: !!user.gifs_protected, appearOffline: !!user.appear_offline, tick: hasTick(user.username), canSwitch: !!await linkedAccount(env, user.id) } });
 }
 async function handleMe(request, env) {
   const auth = await getAuth(request, env);
   if (!auth) return err("Unauthorized", 401);
-  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV("users")} as avatar_url, ${BANNER_COLS("users")}, gifs_protected FROM users WHERE id = ?`).bind(auth.userId).first();
+  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV("users")} as avatar_url, ${BANNER_COLS("users")}, gifs_protected, appear_offline FROM users WHERE id = ?`).bind(auth.userId).first();
   if (!user) return err("User not found", 404);
-  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath("avatars", user.id, user.avatar_url), ...bannerFields(user), gifsProtected: !!user.gifs_protected, tick: hasTick(user.username), canSwitch: !!await linkedAccount(env, user.id) });
+  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath("avatars", user.id, user.avatar_url), ...bannerFields(user), gifsProtected: !!user.gifs_protected, appearOffline: !!user.appear_offline, tick: hasTick(user.username), canSwitch: !!await linkedAccount(env, user.id) });
 }
 async function handleUpdateProfile(request, env) {
   const auth = await getAuth(request, env);
   if (!auth) return err("Unauthorized", 401);
-  const { username, avatarUrl, bannerUrl, bannerColors, gifsProtected } = await request.json();
+  const { username, avatarUrl, bannerUrl, bannerColors, gifsProtected, appearOffline } = await request.json();
+  if (appearOffline !== void 0) {
+    const me = await env.DB.prepare("SELECT username FROM users WHERE id = ?").bind(auth.userId).first();
+    if (me?.username.toLowerCase() !== GIF_PROTECT_USER) return err("Only the idk account can choose to appear offline", 403);
+    await env.DB.prepare("UPDATE users SET appear_offline = ? WHERE id = ?").bind(appearOffline ? 1 : 0, auth.userId).run();
+  }
   if (gifsProtected !== void 0) {
     const me = await env.DB.prepare("SELECT username FROM users WHERE id = ?").bind(auth.userId).first();
     if (me?.username.toLowerCase() !== GIF_PROTECT_USER) return err("Only the idk account can protect GIFs", 403);
@@ -437,9 +442,9 @@ async function handleUpdateProfile(request, env) {
       await env.DB.prepare("UPDATE users SET banner_c1 = ?, banner_c2 = ?, banner_url = NULL WHERE id = ?").bind(bannerColors[0], bannerColors[1], auth.userId).run();
     }
   }
-  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV("users")} as avatar_url, ${BANNER_COLS("users")}, gifs_protected FROM users WHERE id = ?`).bind(auth.userId).first();
+  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV("users")} as avatar_url, ${BANNER_COLS("users")}, gifs_protected, appear_offline FROM users WHERE id = ?`).bind(auth.userId).first();
   if (!user) return err("User not found", 404);
-  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath("avatars", user.id, user.avatar_url), ...bannerFields(user), gifsProtected: !!user.gifs_protected, tick: hasTick(user.username), canSwitch: !!await linkedAccount(env, user.id) });
+  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath("avatars", user.id, user.avatar_url), ...bannerFields(user), gifsProtected: !!user.gifs_protected, appearOffline: !!user.appear_offline, tick: hasTick(user.username), canSwitch: !!await linkedAccount(env, user.id) });
 }
 function previewOf(content) {
   if (!content) return null;
@@ -450,7 +455,8 @@ function previewOf(content) {
   return content.length > 120 ? content.slice(0, 117) + "..." : content;
 }
 var ONLINE_WINDOW = 20;
-function isOnline(lastSeen) {
+function isOnline(lastSeen, appearOffline) {
+  if (appearOffline) return false;
   return !!lastSeen && Math.floor(Date.now() / 1e3) - lastSeen < ONLINE_WINDOW;
 }
 async function handleGetFriends(request, env) {
@@ -461,7 +467,7 @@ async function handleGetFriends(request, env) {
     env.DB.prepare("UPDATE direct_messages SET delivered_at = unixepoch() WHERE receiver_id = ? AND delivered_at IS NULL").bind(me),
     env.DB.prepare("UPDATE users SET last_seen = unixepoch() WHERE id = ?").bind(me),
     env.DB.prepare(`
-      SELECT u.id, u.username, u.avatar_color, ${AV("u")} as avatar_url, ${BANNER_COLS("u")}, u.last_seen, f.id as friendship_id,
+      SELECT u.id, u.username, u.avatar_color, ${AV("u")} as avatar_url, ${BANNER_COLS("u")}, u.last_seen, u.appear_offline, f.id as friendship_id,
              (SELECT COUNT(*) FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL AND ${NOT_EXPIRED("dm.created_at")}) as unread,
              (SELECT MAX(dm.id) FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL AND ${NOT_EXPIRED("dm.created_at")}) as last_unread_id,
              (SELECT dm.content FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL AND ${NOT_EXPIRED("dm.created_at")} ORDER BY dm.id DESC LIMIT 1) as preview,
@@ -471,12 +477,12 @@ async function handleGetFriends(request, env) {
       WHERE (f.requester_id = ? OR f.addressee_id = ?) AND f.status = 'accepted'
     `).bind(me, me, me, me, me, me, me, me),
     env.DB.prepare(`
-      SELECT u.id, u.username, u.avatar_color, ${AV("u")} as avatar_url, ${BANNER_COLS("u")}, u.last_seen, f.id as friendship_id
+      SELECT u.id, u.username, u.avatar_color, ${AV("u")} as avatar_url, ${BANNER_COLS("u")}, u.last_seen, u.appear_offline, f.id as friendship_id
       FROM friendships f JOIN users u ON u.id = f.addressee_id
       WHERE f.requester_id = ? AND f.status = 'pending'
     `).bind(me),
     env.DB.prepare(`
-      SELECT u.id, u.username, u.avatar_color, ${AV("u")} as avatar_url, ${BANNER_COLS("u")}, u.last_seen, f.id as friendship_id
+      SELECT u.id, u.username, u.avatar_color, ${AV("u")} as avatar_url, ${BANNER_COLS("u")}, u.last_seen, u.appear_offline, f.id as friendship_id
       FROM friendships f JOIN users u ON u.id = f.requester_id
       WHERE f.addressee_id = ? AND f.status = 'pending'
     `).bind(me)
@@ -489,7 +495,7 @@ async function handleGetFriends(request, env) {
     ...bannerFields(r),
     verified: isVerified(r.username),
     tick: hasTick(r.username),
-    online: isVerified(r.username) || isOnline(r.last_seen),
+    online: isVerified(r.username) || isOnline(r.last_seen, r.appear_offline),
     friendshipId: r.friendship_id
   });
   return json({
@@ -502,7 +508,7 @@ async function handleUserProfile(request, env, targetId) {
   const auth = await getAuth(request, env);
   if (!auth) return err("Unauthorized", 401);
   const me = auth.userId;
-  const u = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV("u")} as avatar_url, ${BANNER_COLS("u")}, u.last_seen, u.created_at FROM users u WHERE u.id = ?`).bind(targetId).first();
+  const u = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV("u")} as avatar_url, ${BANNER_COLS("u")}, u.last_seen, u.appear_offline, u.created_at FROM users u WHERE u.id = ?`).bind(targetId).first();
   if (!u) return err("User not found", 404);
   const FRIENDS_OF = `SELECT CASE WHEN requester_id = ?1 THEN addressee_id ELSE requester_id END AS fid FROM friendships WHERE status = 'accepted' AND (requester_id = ?1 OR addressee_id = ?1)`;
   const [fr, note, mutualFriends, mutualGroups] = await env.DB.batch([
@@ -524,7 +530,7 @@ async function handleUserProfile(request, env, targetId) {
     ...bannerFields(u),
     verified: isVerified(u.username),
     tick: hasTick(u.username),
-    online: isVerified(u.username) || isOnline(u.last_seen),
+    online: isVerified(u.username) || isOnline(u.last_seen, u.appear_offline),
     memberSince: u.created_at,
     friendship: f ? { id: f.id, status: f.status, since: f.created_at } : null,
     note: note.results[0]?.note ?? "",
@@ -696,7 +702,7 @@ async function handleGroupMembers(request, env, groupId) {
   const isMember = await env.DB.prepare("SELECT id FROM group_members WHERE group_id = ? AND user_id = ?").bind(groupId, auth.userId).first();
   if (!isMember) return err("Not a member of this group", 403);
   const rows = await env.DB.prepare(`
-    SELECT u.id, u.username, u.avatar_color, ${AV("u")} as avatar_url, u.last_seen, g.owner_id
+    SELECT u.id, u.username, u.avatar_color, ${AV("u")} as avatar_url, u.last_seen, u.appear_offline, g.owner_id
     FROM group_members gm
     JOIN users u ON u.id = gm.user_id
     JOIN groups g ON g.id = gm.group_id
@@ -708,7 +714,7 @@ async function handleGroupMembers(request, env, groupId) {
     username: r.username,
     avatarColor: r.avatar_color,
     avatarUrl: avatarPath("avatars", r.id, r.avatar_url),
-    online: r.id === auth.userId || isVerified(r.username) || isOnline(r.last_seen),
+    online: r.id === auth.userId || isVerified(r.username) || isOnline(r.last_seen, r.appear_offline),
     isOwner: r.id === r.owner_id,
     verified: isVerified(r.username),
     tick: hasTick(r.username)
@@ -854,6 +860,10 @@ function ensureSchema(env) {
       }
       try {
         await env.DB.prepare("ALTER TABLE users ADD COLUMN gifs_protected INTEGER NOT NULL DEFAULT 0").run();
+      } catch {
+      }
+      try {
+        await env.DB.prepare("ALTER TABLE users ADD COLUMN appear_offline INTEGER NOT NULL DEFAULT 0").run();
       } catch {
       }
       try {
