@@ -53,3 +53,12 @@ export const MicOffIcon = (p: IconProps) => (
 export const VideoOffIcon = (p: IconProps) => (
     <Svg {...p}><rect x="2.5" y="6" width="13" height="12" rx="3" /><path d="m15.5 10.5 6-3.5v10l-6-3.5M3 3l18 18" /></Svg>
 );
+export const SpeakerIcon = (p: IconProps) => (
+    <Svg {...p}><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4Z" /><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" /></Svg>
+);
+export const EditIcon = (p: IconProps) => (
+    <Svg {...p}><path d="m4 20 1-4L16.5 4.5a2 2 0 0 1 3 3L8 19l-4 1Z" /><path d="m14.5 6.5 3 3" /></Svg>
+);
+export const TrashIcon = (p: IconProps) => (
+    <Svg {...p}><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" /></Svg>
+);

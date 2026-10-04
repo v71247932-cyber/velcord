@@ -15,6 +15,8 @@ import { TypingLine, useTypingNames, useTypingPing } from '../typing';
 
 interface GroupChatPanelProps {
     group: Group;
+    /** the text channel being shown */
+    channel: { id: number; name: string };
 }
 
 function formatTime(ts: number): string {
@@ -26,7 +28,7 @@ function formatTime(ts: number): string {
     return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ` at ${time}`;
 }
 
-export default function GroupChatPanel({ group }: GroupChatPanelProps) {
+export default function GroupChatPanel({ group, channel }: GroupChatPanelProps) {
     const { user } = useAuth();
     const [input, setInput] = useState('');
     const [sending] = useState(false);
@@ -42,13 +44,13 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
     const pingTyping = useTypingPing('group', group.id);
 
     const { messages, setMessages, send } = useChat({
-        key: `group-${group.id}`,
+        key: `group-${group.id}-${channel.id}`,
         me: user!,
-        fetchMessages: (afterId) => api.getGroupMessages(group.id, afterId),
-        sendMessage: (content) => api.sendGroupMessage(group.id, content),
+        fetchMessages: (afterId) => api.getGroupMessages(group.id, afterId, channel.id),
+        sendMessage: (content) => api.sendGroupMessage(group.id, content, channel.id),
     });
 
-        const { areaRef, onScroll, unseen, jumpToNewest } = useStickToBottom(messages, user?.id, `group-${group.id}`);
+        const { areaRef, onScroll, unseen, jumpToNewest } = useStickToBottom(messages, user?.id, `group-${group.id}-${channel.id}`);
 
     async function handleSend() {
         const content = input.trim();
@@ -151,7 +153,7 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
                             <Avatar name={group.name} color="#5865f2" src={group.avatarUrl ?? undefined} size="xl" />
                         </div>
                         <p>
-                            Welcome to the beginning of the <strong>{group.name}</strong> group chat.
+                            This is the beginning of <strong>#{channel.name}</strong> in {group.name}.
                         </p>
                     </div>
                 )}
@@ -212,7 +214,7 @@ export default function GroupChatPanel({ group }: GroupChatPanelProps) {
                         onChange={handleInput}
                         onKeyDown={handleKeyDown}
                         onPaste={handlePaste}
-                        placeholder={`Message #${group.name}`}
+                        placeholder={`Message #${channel.name}`}
                         rows={1}
                         autoFocus={!isMobileDevice()}
                     />

@@ -52,11 +52,17 @@ export const api = {
     sendMessage: (userId: number, content: string) =>
         request<Message>('POST', `/api/messages/${userId}`, { content }),
 
-    getGroupMessages: (groupId: number, afterId = 0) =>
-        request<Message[]>('GET', `/api/groups/${groupId}/messages?after=${afterId}`),
+    getGroupMessages: (groupId: number, afterId = 0, channelId?: number) =>
+        request<Message[]>('GET', `/api/groups/${groupId}/messages?after=${afterId}${channelId ? `&channel=${channelId}` : ''}`),
 
-    sendGroupMessage: (groupId: number, content: string) =>
-        request<Message>('POST', `/api/groups/${groupId}/messages`, { content }),
+    sendGroupMessage: (groupId: number, content: string, channelId?: number) =>
+        request<Message>('POST', `/api/groups/${groupId}/messages`, { content, channelId }),
+
+    getChannels: (groupId: number) => request<{ max: number; channels: Channel[] }>('GET', `/api/groups/${groupId}/channels`),
+    createChannel: (groupId: number, name: string, kind: 'text' | 'voice') => request<Channel>('POST', `/api/groups/${groupId}/channels`, { name, kind }),
+    renameChannel: (channelId: number, name: string) => request<Channel>('PATCH', `/api/channels/${channelId}`, { name }),
+    deleteChannel: (channelId: number) => request<{ success: boolean }>('DELETE', `/api/channels/${channelId}`),
+    defaultVoice: (groupId: number) => request<{ id: number; name: string }>('POST', `/api/groups/${groupId}/default-voice`, {}),
 
     getGroupMembers: (groupId: number) => request<GroupMember[]>('GET', `/api/groups/${groupId}/members`),
 
@@ -128,10 +134,11 @@ export const api = {
     callSignal: (to: number, type: string, payload?: unknown, conf?: number) =>
         request<{ success: boolean }>('POST', '/api/calls/signal', { to, type, conf, payload: payload === undefined ? undefined : JSON.stringify(payload) }),
 
-    confJoin: (groupId: number, video: boolean) =>
-        request<{ started: boolean; max: number; roster: ConfPerson[] }>('POST', `/api/conferences/${groupId}/join`, { video }),
+    /** A voice channel is the room of a conference. ring = this join starts the call, so ring the rest of the group. */
+    confJoin: (roomId: number, video: boolean, ring = false) =>
+        request<{ started: boolean; max: number; groupId: number; channelName: string; roster: ConfPerson[] }>('POST', `/api/voice/${roomId}/join`, { video, ring }),
 
-    confLeave: (groupId: number) => request<{ success: boolean }>('POST', `/api/conferences/${groupId}/leave`, {}),
+    confLeave: (roomId: number) => request<{ success: boolean }>('POST', `/api/voice/${roomId}/leave`, {}),
 
     callPoll: (after: number, conf?: number) =>
         request<{ now: number; lastId?: number; roster?: ConfPerson[]; signals: CallSignal[] }>('GET', after < 0 ? '/api/calls/poll?init=1' : `/api/calls/poll?after=${after}${conf ? `&conf=${conf}` : ''}`),
@@ -194,6 +201,15 @@ export interface TypingEntry {
     username: string;
     toId: number | null;
     groupId: number | null;
+}
+
+export interface Channel {
+    id: number;
+    name: string;
+    kind: 'text' | 'voice';
+    position: number;
+    /** voice channels only: who is in the room right now */
+    participants?: ConfPerson[];
 }
 
 export interface GifItem {

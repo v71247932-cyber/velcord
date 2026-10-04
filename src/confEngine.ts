@@ -21,6 +21,8 @@ export interface ConfPeerView {
 
 export interface ConfView {
     groupId: number;
+    /** the voice channel this call happens in */
+    roomId: number;
     groupName: string;
     startedAt: number;
     peers: ConfPeerView[];
@@ -84,6 +86,7 @@ export function watchSpeaking(stream: MediaStream, onChange: (speaking: boolean)
 export class ConfEngine {
     active = false;
     groupId = 0;
+    roomId = 0;
     groupName = '';
     startedAt = 0;
     private me: User;
@@ -111,13 +114,14 @@ export class ConfEngine {
 
     // ------------------------------------------------------------------ joining and leaving
 
-    async start(groupId: number, groupName: string, opts: { video?: boolean } = {}) {
+    async start(roomId: number, groupId: number, groupName: string, opts: { video?: boolean; ring?: boolean } = {}) {
+        this.roomId = roomId;
         this.groupId = groupId;
         this.groupName = groupName;
         await this.getMic();
         if (opts.video) await this.getCamera();
         try {
-            const r = await api.confJoin(groupId, !!opts.video);
+            const r = await api.confJoin(roomId, !!opts.video, !!opts.ring);
             this.active = true;
             this.startedAt = Date.now();
             for (const p of r.roster) if (p.id !== this.me.id) this.addPeer(p as User, true);
@@ -130,13 +134,13 @@ export class ConfEngine {
 
     /** Registers again after the server forgot us (for example after the computer slept). */
     async rejoin() {
-        try { await api.confJoin(this.groupId, false); } catch { /* try again on the next round */ }
+        try { await api.confJoin(this.roomId, false); } catch { /* try again on the next round */ }
     }
 
     async leave(notifyServer = true) {
         if (!this.active) return;
         this.active = false;
-        if (notifyServer) api.confLeave(this.groupId).catch(() => {});
+        if (notifyServer) api.confLeave(this.roomId).catch(() => {});
         for (const id of Array.from(this.peers.keys())) this.removePeer(id, false);
         this.releaseMedia();
         this.onEnded();
@@ -414,7 +418,7 @@ export class ConfEngine {
 
     private signal(to: number, type: string, payload?: unknown) {
         this.log('send', type, '->', this.peers.get(to)?.user.username ?? to, type === 'conf-desc' ? (payload as any)?.type : '');
-        api.callSignal(to, type, payload, this.groupId).catch(() => {});
+        api.callSignal(to, type, payload, this.roomId).catch(() => {});
     }
     private broadcast(type: string, payload?: unknown) {
         for (const id of this.peers.keys()) this.signal(id, type, payload);
@@ -423,6 +427,7 @@ export class ConfEngine {
     view(): ConfView {
         return {
             groupId: this.groupId,
+            roomId: this.roomId,
             groupName: this.groupName,
             startedAt: this.startedAt,
             peers: Array.from(this.peers.values()).map(p => ({

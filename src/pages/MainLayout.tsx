@@ -20,6 +20,8 @@ import UserProfileModal from '../components/UserProfileModal';
 import { PROFILE_EVENT } from '../components/Avatar';
 import ProfileCard from '../components/ProfileCard';
 import { useConference } from '../ConferenceContext';
+import { useChannels } from '../useChannels';
+import GroupChannels from '../components/GroupChannels';
 import '../switch.css';
 import GroupMembersPanel from '../components/GroupMembersPanel';
 import CreateGroupModal from '../components/CreateGroupModal';
@@ -288,10 +290,19 @@ export default function MainLayout() {
     const currentFriend = view.type === 'dm' ? view.friend : null;
     const currentGroup = view.type === 'group' ? (groups.find(g => g.id === view.group.id) ?? view.group) : null;
 
+    // Channels of the open group: which text channel is shown (remembered per group)
+    const { channels, reload: reloadChannels, loaded: channelsLoaded } = useChannels(currentGroup?.id ?? null);
+    const [textChoice, setTextChoice] = useState<Record<number, number>>({});
+    const textChannels = channels.filter(c => c.kind === 'text');
+    const activeText = currentGroup
+        ? (textChannels.find(c => c.id === textChoice[currentGroup.id]) ?? textChannels[0] ?? null)
+        : null;
+    const isGroupOwner = !!currentGroup && currentGroup.ownerId === user?.id;
+
     const getHeaderTitle = () => {
         if (view.type === 'friends') return 'Friends';
         if (view.type === 'dm') return `@${view.friend.username}`;
-        if (view.type === 'group') return `# ${view.group.name}`;
+        if (view.type === 'group') return activeText ? `${view.group.name} · #${activeText.name}` : view.group.name;
         return 'Velcord';
     };
 
@@ -314,8 +325,8 @@ export default function MainLayout() {
                 )}
                 {view.type === 'group' && currentGroup && conference.activeGroupId !== currentGroup.id && (
                     <div className="mobile-actions">
-                        <button onClick={() => conference.join(currentGroup.id, currentGroup.name)} disabled={callPhase !== 'idle' || conference.activeGroupId !== null} aria-label="Group call"><PhoneIcon size={20} /></button>
-                        <button onClick={() => conference.join(currentGroup.id, currentGroup.name, { video: true })} disabled={callPhase !== 'idle' || conference.activeGroupId !== null} aria-label="Group video call"><VideoIcon size={20} /></button>
+                        <button onClick={() => conference.startGroupCall(currentGroup)} disabled={callPhase !== 'idle' || conference.activeGroupId !== null} aria-label="Group call"><PhoneIcon size={20} /></button>
+                        <button onClick={() => conference.startGroupCall(currentGroup, true)} disabled={callPhase !== 'idle' || conference.activeGroupId !== null} aria-label="Group video call"><VideoIcon size={20} /></button>
                     </div>
                 )}
                 {(view.type === 'dm' || view.type === 'group') && (
@@ -380,6 +391,18 @@ export default function MainLayout() {
                         <span>Friends</span>
                         {pendingCount > 0 && <span className="friends-row-badge">{pendingCount}</span>}
                     </button>
+
+                    {view.type === 'group' && currentGroup && (
+                        <GroupChannels
+                            group={currentGroup}
+                            channels={channels}
+                            activeTextId={activeText?.id ?? null}
+                            isOwner={isGroupOwner}
+                            onSelectText={id => { setTextChoice(c => ({ ...c, [currentGroup.id]: id })); requestChatFocus(); }}
+                            onChanged={reloadChannels}
+                            onPicked={() => setSidebarOpen(false)}
+                        />
+                    )}
 
                     <div className="sidebar-section-label dm-section-label">DIRECT MESSAGES</div>
 
@@ -519,14 +542,15 @@ export default function MainLayout() {
                                     <span>{currentGroup.name}</span>
                                     <span className="header-chevron">▾</span>
                                 </div>
+                                {activeText && <span className="header-channel"># {activeText.name}</span>}
                                 {conference.activeGroupId === currentGroup.id ? (
                                     <span className="header-in-call">● You are in the call</span>
                                 ) : (
                                     <>
-                                        <button className="header-call-btn" onClick={() => conference.join(currentGroup.id, currentGroup.name)} disabled={callPhase !== 'idle' || conference.activeGroupId !== null} title="Start a group call">
+                                        <button className="header-call-btn" onClick={() => conference.startGroupCall(currentGroup)} disabled={callPhase !== 'idle' || conference.activeGroupId !== null} title="Start a group call">
                                             <PhoneIcon size={15} /> {(currentGroup.callCount || 0) > 0 ? 'Join call' : 'Call'}
                                         </button>
-                                        <button className="header-call-btn header-video-btn" onClick={() => conference.join(currentGroup.id, currentGroup.name, { video: true })} disabled={callPhase !== 'idle' || conference.activeGroupId !== null} title="Start a group video call">
+                                        <button className="header-call-btn header-video-btn" onClick={() => conference.startGroupCall(currentGroup, true)} disabled={callPhase !== 'idle' || conference.activeGroupId !== null} title="Start a group video call">
                                             <VideoIcon size={15} /> Video
                                         </button>
                                     </>
@@ -536,10 +560,12 @@ export default function MainLayout() {
                                 <div className="conf-banner">
                                     <span className="conf-banner-dot" />
                                     <span className="conf-banner-text">A call is going on · {currentGroup.callCount} in the call</span>
-                                    <button onClick={() => conference.join(currentGroup.id, currentGroup.name)} disabled={callPhase !== 'idle' || conference.activeGroupId !== null}>Join</button>
+                                    <button onClick={() => conference.startGroupCall(currentGroup)} disabled={callPhase !== 'idle' || conference.activeGroupId !== null}>Join</button>
                                 </div>
                             )}
-                            <GroupChatPanel key={currentGroup.id} group={currentGroup} />
+                            {activeText
+                                ? <GroupChatPanel key={`${currentGroup.id}-${activeText.id}`} group={currentGroup} channel={activeText} />
+                                : <div className="empty-state" style={{ flex: 1 }}><p>{channelsLoaded ? 'This group has no text channel.' : 'Loading…'}</p></div>}
                         </div>
                         <GroupMembersPanel group={currentGroup} friends={friendsData.friends} onGroupChanged={load} />
                     </div>

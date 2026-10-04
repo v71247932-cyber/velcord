@@ -17,16 +17,23 @@ import { MicIcon, MicOffIcon, VideoIcon, VideoOffIcon, PhoneIcon } from './compo
 const RING_TIMEOUT_MS = 45_000;
 const INVITE_MAX_AGE_S = 45;
 
-interface Incoming { groupId: number; groupName: string; from: User; video: boolean }
+interface Incoming { roomId: number; groupId: number; groupName: string; channelName: string; from: User; video: boolean }
+
+interface JoinOptions { groupId: number; groupName: string; channelName?: string; video?: boolean; ring?: boolean }
 
 interface ConferenceValue {
     /** The group whose call I am in, or null */
     activeGroupId: number | null;
-    join: (groupId: number, groupName: string, opts?: { video?: boolean }) => Promise<void>;
+    /** The voice channel I am in, or null */
+    activeRoomId: number | null;
+    /** Walk into a voice channel (quiet: it does not ring anybody) */
+    join: (roomId: number, opts: JoinOptions) => Promise<void>;
+    /** The group's Call / Video buttons: pick the group's voice channel and ring the others when this starts a call */
+    startGroupCall: (group: { id: number; name: string }, video?: boolean) => Promise<void>;
     leave: () => void;
 }
 
-const Ctx = createContext<ConferenceValue>({ activeGroupId: null, join: async () => {}, leave: () => {} });
+const Ctx = createContext<ConferenceValue>({ activeGroupId: null, activeRoomId: null, join: async () => {}, startGroupCall: async () => {}, leave: () => {} });
 export const useConference = () => useContext(Ctx);
 
 /** Shows a MediaStream in a <video>; sound comes from separate audio elements, so videos stay muted. */
@@ -82,7 +89,7 @@ export function ConferenceProvider({ children }: { children: ReactNode }) {
         e.leave();
     }, []);
 
-    const join = useCallback(async (groupId: number, groupName: string, opts: { video?: boolean } = {}) => {
+    const join = useCallback(async (roomId: number, opts: JoinOptions) => {
         if (!user || engine.current?.active) return;
         if (callBusy.oneToOne) { setNotice('Hang up your call first.'); return; }
         setIncoming(null);
@@ -93,7 +100,7 @@ export function ConferenceProvider({ children }: { children: ReactNode }) {
         engine.current = e;
         callBusy.conference = true;
         try {
-            await e.start(groupId, groupName, opts);
+            await e.start(roomId, opts.groupId, opts.channelName ? `${opts.groupName} · ${opts.channelName}` : opts.groupName, { video: opts.video, ring: opts.ring });
             e.setAudio(muted, deafened);
             refresh();
         } catch (err: any) {
@@ -103,6 +110,15 @@ export function ConferenceProvider({ children }: { children: ReactNode }) {
             setNotice(err?.message || 'Could not join the call');
         }
     }, [user, refresh, muted, deafened]);
+
+    const startGroupCall = useCallback(async (group: { id: number; name: string }, video = false) => {
+        try {
+            const v = await api.defaultVoice(group.id);
+            await join(v.id, { groupId: group.id, groupName: group.name, channelName: v.name, video, ring: true });
+        } catch (err: any) {
+            setNotice(err?.message || 'Could not start the call');
+        }
+    }, [join]);
 
     // The sidebar mute / deafen buttons also control the mic in a conference
     useEffect(() => { engine.current?.setAudio(muted, deafened); }, [muted, deafened]);
@@ -120,11 +136,11 @@ export function ConferenceProvider({ children }: { children: ReactNode }) {
                 if (engine.current?.active || callBusy.oneToOne || incomingRef.current) return;
                 let p: any = {};
                 try { p = JSON.parse(sig.payload || '{}'); } catch { /* keep defaults */ }
-                setIncoming({ groupId: sig.conf, groupName: p.groupName || 'Group', from: sig.from, video: !!p.video });
+                setIncoming({ roomId: sig.conf, groupId: Number(p.groupId) || 0, groupName: p.groupName || 'Group', channelName: p.channelName || '', from: sig.from, video: !!p.video });
                 return;
             }
             const e = engine.current;
-            if (e?.active && sig.conf === e.groupId && sig.type.startsWith('conf-')) {
+            if (e?.active && sig.conf === e.roomId && sig.type.startsWith('conf-')) {
                 queue.current = queue.current.then(() => e.onSignal(sig)).catch(() => {});
             }
         };
@@ -132,7 +148,7 @@ export function ConferenceProvider({ children }: { children: ReactNode }) {
             if (busy) return;
             busy = true;
             const e = engine.current;
-            const gid = e?.active ? e.groupId : undefined;
+            const gid = e?.active ? e.roomId : undefined;
             try {
                 if (lastId.current === null) {
                     const init = await api.callPoll(-1);
@@ -186,7 +202,7 @@ export function ConferenceProvider({ children }: { children: ReactNode }) {
             const e = engine.current;
             const token = localStorage.getItem('velcord_token');
             if (e?.active && token) {
-                fetch(`/api/conferences/${e.groupId}/leave`, { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: '{}' }).catch(() => {});
+                fetch(`/api/voice/${e.roomId}/leave`, { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: '{}' }).catch(() => {});
             }
         };
         window.addEventListener('beforeunload', bye);
@@ -200,7 +216,7 @@ export function ConferenceProvider({ children }: { children: ReactNode }) {
     const tiles = view ? view.peers.length + 1 : 0;
 
     return (
-        <Ctx.Provider value={{ activeGroupId: view ? view.groupId : null, join, leave }}>
+        <Ctx.Provider value={{ activeGroupId: view ? view.groupId : null, activeRoomId: view ? view.roomId : null, join, startGroupCall, leave }}>
             {children}
 
             {notice && <div className="call-toast" onClick={() => setNotice(null)}>{notice}</div>}
@@ -208,10 +224,10 @@ export function ConferenceProvider({ children }: { children: ReactNode }) {
             {incoming && !view && (
                 <div className="call-card call-incoming conf-ring">
                     <Avatar name={incoming.from.username} color={incoming.from.avatarColor} src={incoming.from.avatarUrl ?? undefined} size="lg" />
-                    <div className="call-title">{incoming.groupName}</div>
+                    <div className="call-title">{incoming.groupName}{incoming.channelName ? ` · ${incoming.channelName}` : ''}</div>
                     <div className="call-sub">{incoming.from.username} started a {incoming.video ? 'video ' : ''}group call</div>
                     <div className="call-buttons">
-                        <button className="call-btn call-btn-accept" onClick={() => join(incoming.groupId, incoming.groupName, { video: incoming.video })}>Join</button>
+                        <button className="call-btn call-btn-accept" onClick={() => join(incoming.roomId, { groupId: incoming.groupId, groupName: incoming.groupName, channelName: incoming.channelName, video: incoming.video })}>Join</button>
                         <button className="call-btn call-btn-end" onClick={() => setIncoming(null)}>Not now</button>
                     </div>
                 </div>

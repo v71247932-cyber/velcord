@@ -1,0 +1,32 @@
+/* ---- Left bar: the open group shows a white bar next to its icon ---- */
+.nav-group-btn { overflow: visible; } /* it used to clip the bar */
+.nav-group-btn img { border-radius: inherit; }
+.nav-group-btn span { border-radius: inherit; }
+
+/* ---- Channels of the open group ---- */
+.chan-list { margin: 0 0 6px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.chan-group-head { padding: 6px 10px 2px; font-size: 15px; font-weight: 700; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chan-label { display: flex; align-items: center; justify-content: space-between; padding: 12px 8px 4px 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-muted); }
+.chan-label button { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: none; border-radius: 4px; background: none; color: var(--text-muted); cursor: pointer; padding: 0; }
+.chan-label button:hover { color: var(--text-primary); background: var(--bg-hover); }
+.chan-row { position: relative; display: flex; align-items: center; gap: 8px; margin: 1px 4px; padding: 6px 8px; border-radius: 6px; cursor: pointer; color: var(--text-muted); font-size: 15px; font-weight: 500; }
+.chan-row:hover { background: var(--bg-hover); color: var(--text-secondary); }
+.chan-row.active { background: var(--bg-accent); color: var(--text-primary); }
+.chan-row.joined { background: rgba(35, 165, 90, 0.16); color: #23a55a; cursor: default; }
+.chan-icon { flex-shrink: 0; opacity: 0.85; }
+.chan-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chan-tools { display: none; align-items: center; gap: 2px; flex-shrink: 0; }
+.chan-row:hover .chan-tools { display: flex; }
+.chan-tools button { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border: none; border-radius: 4px; background: none; color: var(--text-muted); cursor: pointer; padding: 0; }
+.chan-tools button:hover { color: var(--text-primary); background: rgba(255, 255, 255, 0.08); }
+.chan-tools button:last-child:hover { color: #f23f43; }
+@media (hover: none) { .chan-tools { display: flex; } }
+.chan-input { flex: 1; min-width: 0; width: 100%; height: 28px; padding: 0 8px; border: 1px solid var(--blurple); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); font-size: 14px; font-family: inherit; outline: none; }
+.chan-create { margin: 2px 8px 4px; }
+.chan-empty { margin: 2px 12px 4px; font-size: 12px; color: var(--text-muted); }
+.chan-people { margin: 0 4px 4px 30px; display: flex; flex-direction: column; gap: 2px; }
+.chan-person { display: flex; align-items: center; gap: 8px; padding: 2px 6px; font-size: 13px; color: var(--text-secondary); }
+.chan-person .avatar { width: 22px; height: 22px; font-size: 10px; }
+.chan-person span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.header-channel { margin-left: 6px; font-weight: 600; color: var(--text-secondary); }
+.header-channel::before { content: '›'; margin-right: 8px; color: var(--text-muted); }
