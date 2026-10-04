@@ -140,7 +140,7 @@ export class ConfEngine {
     async leave(notifyServer = true) {
         if (!this.active) return;
         this.active = false;
-        if (notifyServer) api.confLeave(this.roomId).catch(() => {});
+        if (notifyServer) api.confLeave(this.roomId).catch(() => {}).finally(() => window.dispatchEvent(new Event('velcord:call-left')));
         for (const id of Array.from(this.peers.keys())) this.removePeer(id, false);
         this.releaseMedia();
         this.onEnded();

@@ -121,7 +121,8 @@ export default function MainLayout() {
     useEffect(() => {
         const h = () => loadRef.current();
         window.addEventListener('velcord:message-sent', h);
-        return () => window.removeEventListener('velcord:message-sent', h);
+        window.addEventListener('velcord:call-left', h); // the "a call is going on" banner must not outlive my own call
+        return () => { window.removeEventListener('velcord:message-sent', h); window.removeEventListener('velcord:call-left', h); };
     }, []);
 
     useEffect(() => {
@@ -404,6 +405,8 @@ export default function MainLayout() {
                         />
                     )}
 
+                    {/* The conversations list belongs to Friends and the chats; inside a group only the channels show */}
+                    {view.type !== 'group' && (<>
                     <div className="sidebar-section-label dm-section-label">DIRECT MESSAGES</div>
 
                     {friendsData.friends.length === 0 && (
@@ -433,6 +436,7 @@ export default function MainLayout() {
                             </div>
                         </div>
                     ))}
+                    </>)}
                 </div>
 
                 {isOldDesktopShell() && (
