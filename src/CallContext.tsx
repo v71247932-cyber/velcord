@@ -85,8 +85,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const [localCam, setLocalCam] = useState(false);
     const [remoteCam, setRemoteCam] = useState(false);
     const [incomingVideo, setIncomingVideo] = useState(false);
-    const [startedVideo, setStartedVideo] = useState(false); // I started this call as a video call
-    const [sawCam, setSawCam] = useState(false); // someone turned a camera on during this call
     const [trackVersion, setTrackVersion] = useState(0);
 
     // Mutable call state lives in refs so the polling loop never sees stale values
@@ -158,8 +156,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
         setLocalCam(false);
         setRemoteCam(false);
         setIncomingVideo(false);
-        setStartedVideo(false);
-        setSawCam(false);
         setAskShare(false);
         setSeconds(0);
         setPhaseBoth('idle');
@@ -459,7 +455,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         if (phaseRef.current !== 'idle') return;
         if (callBusy.conference) { setNotice('Leave the group call first.'); return; }
         await getMic();
-        if (opts?.video) { setStartedVideo(true); await getCamera(); }
+        if (opts?.video) { await getCamera(); }
         if (phaseRef.current !== 'idle') { camRef.current?.getTracks().forEach(t => t.stop()); camRef.current = null; return; }
         peerRef.current = friend;
         setPeer(friend);
@@ -630,7 +626,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
     const videoMode = localCam || remoteCam;
     // The camera button is always there, so a voice call can turn into a video call
-    useEffect(() => { if (localCam || remoteCam) setSawCam(true); }, [localCam, remoteCam]);
     const mm = String(Math.floor(seconds / 60)).padStart(2, '0');
     const ss = String(seconds % 60).padStart(2, '0');
     const inCall = phase === 'connecting' || phase === 'active';
