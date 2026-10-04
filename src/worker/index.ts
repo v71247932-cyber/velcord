@@ -1555,123 +1555,123 @@ export default {
 
       // Avatars (public, cached by the browser)
       const avatarMatch = path.match(/^\/api\/(avatars|group-avatars|banners|group-banners)\/(\d+)$/);
-      if (avatarMatch && request.method === 'GET') return handleGetAvatar(env, avatarMatch[1] as 'avatars' | 'group-avatars' | 'banners' | 'group-banners', parseInt(avatarMatch[2]));
+      if (avatarMatch && request.method === 'GET') return await handleGetAvatar(env, avatarMatch[1] as 'avatars' | 'group-avatars' | 'banners' | 'group-banners', parseInt(avatarMatch[2]));
 
       // Uploads
-      if (path === '/api/uploads' && request.method === 'POST') return handleUpload(request, env);
+      if (path === '/api/uploads' && request.method === 'POST') return await handleUpload(request, env);
       const uploadMatch = path.match(/^\/api\/uploads\/([a-f0-9]+)$/);
-      if (uploadMatch && request.method === 'GET') return handleGetUpload(env, uploadMatch[1]);
+      if (uploadMatch && request.method === 'GET') return await handleGetUpload(env, uploadMatch[1]);
 
-      if (path === '/api/wait' && request.method === 'GET') return handleWait(request, env);
-      if (path === '/api/typing' && request.method === 'POST') return handleTyping(request, env);
+      if (path === '/api/wait' && request.method === 'GET') return await handleWait(request, env);
+      if (path === '/api/typing' && request.method === 'POST') return await handleTyping(request, env);
 
       // Official notifications (needs the secret key)
-      if (path === '/api/system/notify' && request.method === 'POST') return handleSystemNotify(request, env);
-      if (path === '/api/system/status' && request.method === 'POST') return handleSystemStatus(request, env);
-      if (path === '/api/system/unfriend' && request.method === 'POST') return handleSystemUnfriend(request, env);
-      if (path === '/api/system/videos' && request.method === 'POST') return handleSystemVideos(request, env);
-      if (path === '/api/system/gif-protect' && request.method === 'POST') return handleSystemGifProtect(request, env);
-      if (path === '/api/system/test-account' && request.method === 'POST') return handleSystemTestAccount(request, env);
-      if (path === '/api/switch-account' && request.method === 'POST') return handleSwitchAccount(request, env);
+      if (path === '/api/system/notify' && request.method === 'POST') return await handleSystemNotify(request, env);
+      if (path === '/api/system/status' && request.method === 'POST') return await handleSystemStatus(request, env);
+      if (path === '/api/system/unfriend' && request.method === 'POST') return await handleSystemUnfriend(request, env);
+      if (path === '/api/system/videos' && request.method === 'POST') return await handleSystemVideos(request, env);
+      if (path === '/api/system/gif-protect' && request.method === 'POST') return await handleSystemGifProtect(request, env);
+      if (path === '/api/system/test-account' && request.method === 'POST') return await handleSystemTestAccount(request, env);
+      if (path === '/api/switch-account' && request.method === 'POST') return await handleSwitchAccount(request, env);
 
       // GIF behind a Tenor link
       if (path === '/api/gif-link' && request.method === 'GET') {
         if (!(await getAuth(request, env))) return err('Unauthorized', 401);
-        return handleGifLink(request);
+        return await handleGifLink(request);
       }
 
       // Personal GIF list
-      if (path === '/api/gifs' && request.method === 'POST') return handleGifUpload(request, env);
-      if (path === '/api/gifs' && request.method === 'GET') return handleGifList(request, env);
-      if (path === '/api/gifs/save' && request.method === 'POST') return handleGifSave(request, env);
-      if (path === '/api/gifs/origins' && request.method === 'POST') return handleGifOrigins(request, env);
+      if (path === '/api/gifs' && request.method === 'POST') return await handleGifUpload(request, env);
+      if (path === '/api/gifs' && request.method === 'GET') return await handleGifList(request, env);
+      if (path === '/api/gifs/save' && request.method === 'POST') return await handleGifSave(request, env);
+      if (path === '/api/gifs/origins' && request.method === 'POST') return await handleGifOrigins(request, env);
       const gifFileMatch = path.match(/^\/api\/gifs\/([a-f0-9]{32})\/file$/);
-      if (gifFileMatch && request.method === 'GET') return handleGifFile(env, gifFileMatch[1]);
+      if (gifFileMatch && request.method === 'GET') return await handleGifFile(env, gifFileMatch[1]);
       const gifMatch = path.match(/^\/api\/gifs\/([a-f0-9]{32})$/);
-      if (gifMatch && request.method === 'DELETE') return handleGifRemove(request, env, gifMatch[1]);
+      if (gifMatch && request.method === 'DELETE') return await handleGifRemove(request, env, gifMatch[1]);
 
       // Video clips
-      if (path === '/api/videos' && request.method === 'POST') return handleVideoInit(request, env);
+      if (path === '/api/videos' && request.method === 'POST') return await handleVideoInit(request, env);
       const videoChunkMatch = path.match(/^\/api\/videos\/([a-f0-9]{32})\/chunks\/(\d+)$/);
-      if (videoChunkMatch && request.method === 'PUT') return handleVideoChunk(request, env, videoChunkMatch[1], parseInt(videoChunkMatch[2]));
+      if (videoChunkMatch && request.method === 'PUT') return await handleVideoChunk(request, env, videoChunkMatch[1], parseInt(videoChunkMatch[2]));
       const videoDoneMatch = path.match(/^\/api\/videos\/([a-f0-9]{32})\/complete$/);
-      if (videoDoneMatch && request.method === 'POST') return handleVideoComplete(request, env, videoDoneMatch[1]);
+      if (videoDoneMatch && request.method === 'POST') return await handleVideoComplete(request, env, videoDoneMatch[1]);
       const videoGetMatch = path.match(/^\/api\/videos\/([a-f0-9]{32})$/);
-      if (videoGetMatch && (request.method === 'GET' || request.method === 'HEAD')) return handleGetVideo(request, env, videoGetMatch[1]);
+      if (videoGetMatch && (request.method === 'GET' || request.method === 'HEAD')) return await handleGetVideo(request, env, videoGetMatch[1]);
 
       // Calls
       const confMatch = path.match(/^\/api\/conferences\/(\d+)(?:\/(join|leave))?$/);
       if (confMatch) {
         const gid = parseInt(confMatch[1]);
-        if (confMatch[2] === 'join' && request.method === 'POST') return handleConfJoin(request, env, gid);
-        if (confMatch[2] === 'leave' && request.method === 'POST') return handleConfLeave(request, env, gid);
-        if (!confMatch[2] && request.method === 'GET') return handleConfInfo(request, env, gid);
+        if (confMatch[2] === 'join' && request.method === 'POST') return await handleConfJoin(request, env, gid);
+        if (confMatch[2] === 'leave' && request.method === 'POST') return await handleConfLeave(request, env, gid);
+        if (!confMatch[2] && request.method === 'GET') return await handleConfInfo(request, env, gid);
       }
-      if (path === '/api/calls/signal' && request.method === 'POST') return handleCallSignal(request, env);
-      if (path === '/api/calls/poll' && request.method === 'GET') return handleCallPoll(request, env);
+      if (path === '/api/calls/signal' && request.method === 'POST') return await handleCallSignal(request, env);
+      if (path === '/api/calls/poll' && request.method === 'GET') return await handleCallPoll(request, env);
 
       // Message delivery status
       const statusMatch = path.match(/^\/api\/messages\/(\d+)\/status$/);
-      if (statusMatch && request.method === 'GET') return handleMessageStatus(request, env, parseInt(statusMatch[1]));
+      if (statusMatch && request.method === 'GET') return await handleMessageStatus(request, env, parseInt(statusMatch[1]));
 
       // Auth routes
-      if (path === '/api/auth/register' && request.method === 'POST') return handleRegister(request, env);
-      if (path === '/api/auth/login' && request.method === 'POST') return handleLogin(request, env);
+      if (path === '/api/auth/register' && request.method === 'POST') return await handleRegister(request, env);
+      if (path === '/api/auth/login' && request.method === 'POST') return await handleLogin(request, env);
       // Profile/User routes
-      if (path === '/api/me' && request.method === 'GET') return handleMe(request, env);
-      if (path === '/api/me' && request.method === 'PATCH') return handleUpdateProfile(request, env);
+      if (path === '/api/me' && request.method === 'GET') return await handleMe(request, env);
+      if (path === '/api/me' && request.method === 'PATCH') return await handleUpdateProfile(request, env);
 
       const profileRoute = path.match(/^\/api\/users\/(\d+)\/(profile|note)$/);
       if (profileRoute) {
         const id = parseInt(profileRoute[1]);
-        if (profileRoute[2] === 'profile' && request.method === 'GET') return handleUserProfile(request, env, id);
-        if (profileRoute[2] === 'note' && request.method === 'PUT') return handleSetNote(request, env, id);
+        if (profileRoute[2] === 'profile' && request.method === 'GET') return await handleUserProfile(request, env, id);
+        if (profileRoute[2] === 'note' && request.method === 'PUT') return await handleSetNote(request, env, id);
       }
 
       // Friend routes
-      if (path === '/api/friends' && request.method === 'GET') return handleGetFriends(request, env);
-      if (path === '/api/friends/add' && request.method === 'POST') return handleAddFriend(request, env);
-      if (path === '/api/friends/accept' && request.method === 'POST') return handleAcceptFriend(request, env);
-      if (path === '/api/friends/reject' && request.method === 'POST') return handleRejectFriend(request, env);
+      if (path === '/api/friends' && request.method === 'GET') return await handleGetFriends(request, env);
+      if (path === '/api/friends/add' && request.method === 'POST') return await handleAddFriend(request, env);
+      if (path === '/api/friends/accept' && request.method === 'POST') return await handleAcceptFriend(request, env);
+      if (path === '/api/friends/reject' && request.method === 'POST') return await handleRejectFriend(request, env);
 
       // Group routes
-      if (path === '/api/groups' && request.method === 'POST') return handleCreateGroup(request, env);
-      if (path === '/api/groups' && request.method === 'GET') return handleGetGroups(request, env);
+      if (path === '/api/groups' && request.method === 'POST') return await handleCreateGroup(request, env);
+      if (path === '/api/groups' && request.method === 'GET') return await handleGetGroups(request, env);
 
       const groupPatchMatch = path.match(/^\/api\/groups\/(\d+)$/);
-      if (groupPatchMatch && request.method === 'PATCH') return handleUpdateGroup(request, env, parseInt(groupPatchMatch[1]));
+      if (groupPatchMatch && request.method === 'PATCH') return await handleUpdateGroup(request, env, parseInt(groupPatchMatch[1]));
       const groupAddMatch = path.match(/^\/api\/groups\/(\d+)\/members$/);
-      if (groupAddMatch && request.method === 'POST') return handleAddGroupMembers(request, env, parseInt(groupAddMatch[1]));
+      if (groupAddMatch && request.method === 'POST') return await handleAddGroupMembers(request, env, parseInt(groupAddMatch[1]));
 
       const groupMembersMatch = path.match(/^\/api\/groups\/(\d+)\/members$/);
-      if (groupMembersMatch && request.method === 'GET') return handleGroupMembers(request, env, parseInt(groupMembersMatch[1]));
+      if (groupMembersMatch && request.method === 'GET') return await handleGroupMembers(request, env, parseInt(groupMembersMatch[1]));
 
       const groupDeleteMatch = path.match(/^\/api\/groups\/(\d+)$/);
       if (groupDeleteMatch && request.method === 'DELETE') {
-        return handleDeleteGroup(request, env, parseInt(groupDeleteMatch[1]));
+        return await handleDeleteGroup(request, env, parseInt(groupDeleteMatch[1]));
       }
 
       const groupMatch = path.match(/^\/api\/groups\/(\d+)\/messages$/);
       if (groupMatch) {
         const groupId = parseInt(groupMatch[1]);
-        if (request.method === 'GET') return handleGetGroupMessages(request, env, groupId);
-        if (request.method === 'POST') return handleSendGroupMessage(request, env, groupId);
+        if (request.method === 'GET') return await handleGetGroupMessages(request, env, groupId);
+        if (request.method === 'POST') return await handleSendGroupMessage(request, env, groupId);
       }
 
       const groupMsgDeleteMatch = path.match(/^\/api\/group-messages\/(\d+)$/);
       if (groupMsgDeleteMatch && request.method === 'DELETE') {
-        return handleDeleteGroupMessage(request, env, parseInt(groupMsgDeleteMatch[1]));
+        return await handleDeleteGroupMessage(request, env, parseInt(groupMsgDeleteMatch[1]));
       }
 
       // Message routes
       const msgIdMatch = path.match(/^\/api\/messages\/(\d+)$/);
-      if (msgIdMatch && request.method === 'DELETE') return handleDeleteMessage(request, env, parseInt(msgIdMatch[1]));
+      if (msgIdMatch && request.method === 'DELETE') return await handleDeleteMessage(request, env, parseInt(msgIdMatch[1]));
 
       const msgMatch = path.match(/^\/api\/messages\/(\d+)$/);
       if (msgMatch) {
         const otherUserId = parseInt(msgMatch[1]);
-        if (request.method === 'GET') return handleGetMessages(request, env, otherUserId);
-        if (request.method === 'POST') return handleSendMessage(request, env, otherUserId);
+        if (request.method === 'GET') return await handleGetMessages(request, env, otherUserId);
+        if (request.method === 'POST') return await handleSendMessage(request, env, otherUserId);
       }
 
       return json({ error: 'Not found' }, 404);
