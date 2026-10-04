@@ -1443,13 +1443,13 @@ async function handleListChannels(request: Request, env: Env, groupId: number): 
   if (!(await isGroupMember(env, groupId, auth.userId))) return err('Not a member of this group', 403);
   await defaultTextChannel(env, groupId);
   const rows = await env.DB.prepare("SELECT id, name, kind, position FROM channels WHERE group_id = ? ORDER BY CASE kind WHEN 'text' THEN 0 ELSE 1 END, position, id").bind(groupId).all();
-  const alive = await env.DB.prepare(`SELECT vp.channel_id, u.id, u.username, u.avatar_color, ${AV('u')} as avatar_url
+  const alive = await env.DB.prepare(`SELECT vp.channel_id, vp.sharing, u.id, u.username, u.avatar_color, ${AV('u')} as avatar_url
     FROM voice_participants vp JOIN users u ON u.id = vp.user_id JOIN channels c ON c.id = vp.channel_id
     WHERE c.group_id = ? AND vp.last_seen > unixepoch() - ${CONF_ALIVE} ORDER BY vp.joined_at, u.id`).bind(groupId).all();
   const byChannel = new Map<number, unknown[]>();
   for (const r of alive.results as any[]) {
     const list = byChannel.get(r.channel_id) ?? [];
-    list.push({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: avatarPath('avatars', r.id, r.avatar_url), verified: isVerified(r.username), tick: hasTick(r.username) });
+    list.push({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: avatarPath('avatars', r.id, r.avatar_url), verified: isVerified(r.username), tick: hasTick(r.username), sharing: !!r.sharing });
     byChannel.set(r.channel_id, list);
   }
   return json({

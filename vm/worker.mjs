@@ -669,7 +669,8 @@ async function handleGetGroups(request, env) {
   const groups = await env.DB.prepare(`
     SELECT g.id, g.name, g.owner_id, g.created_at, ${AV("g")} as avatar_url, ${BANNER_COLS("g")},
            (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) as memberCount,
-           (SELECT COUNT(*) FROM voice_participants vp JOIN channels vc ON vc.id = vp.channel_id WHERE vc.group_id = g.id AND vp.last_seen > unixepoch() - ${CONF_ALIVE}) as callCount
+           (SELECT COUNT(*) FROM voice_participants vp JOIN channels vc ON vc.id = vp.channel_id WHERE vc.group_id = g.id AND vp.last_seen > unixepoch() - ${CONF_ALIVE}) as callCount,
+           (SELECT COUNT(*) FROM voice_participants vp JOIN channels vc ON vc.id = vp.channel_id WHERE vc.group_id = g.id AND vp.sharing = 1 AND vp.last_seen > unixepoch() - ${CONF_ALIVE}) as sharingCount
     FROM groups g
     JOIN group_members gm ON g.id = gm.group_id
     WHERE gm.user_id = ?
@@ -685,7 +686,8 @@ async function handleGetGroups(request, env) {
     bannerColor1: g.banner_c1 ?? null,
     bannerColor2: g.banner_c2 ?? null,
     memberCount: g.memberCount,
-    callCount: g.callCount || 0
+    callCount: g.callCount || 0,
+    sharingCount: g.sharingCount || 0
   })));
 }
 async function handleGroupMembers(request, env, groupId) {
@@ -852,6 +854,10 @@ function ensureSchema(env) {
       }
       try {
         await env.DB.prepare("ALTER TABLE users ADD COLUMN gifs_protected INTEGER NOT NULL DEFAULT 0").run();
+      } catch {
+      }
+      try {
+        await env.DB.prepare("ALTER TABLE voice_participants ADD COLUMN sharing INTEGER NOT NULL DEFAULT 0").run();
       } catch {
       }
       for (const col of ["banner_url TEXT", "banner_c1 TEXT", "banner_c2 TEXT"]) {
@@ -1243,13 +1249,13 @@ async function handleListChannels(request, env, groupId) {
   if (!await isGroupMember(env, groupId, auth.userId)) return err("Not a member of this group", 403);
   await defaultTextChannel(env, groupId);
   const rows = await env.DB.prepare("SELECT id, name, kind, position FROM channels WHERE group_id = ? ORDER BY CASE kind WHEN 'text' THEN 0 ELSE 1 END, position, id").bind(groupId).all();
-  const alive = await env.DB.prepare(`SELECT vp.channel_id, u.id, u.username, u.avatar_color, ${AV("u")} as avatar_url
+  const alive = await env.DB.prepare(`SELECT vp.channel_id, vp.sharing, u.id, u.username, u.avatar_color, ${AV("u")} as avatar_url
     FROM voice_participants vp JOIN users u ON u.id = vp.user_id JOIN channels c ON c.id = vp.channel_id
     WHERE c.group_id = ? AND vp.last_seen > unixepoch() - ${CONF_ALIVE} ORDER BY vp.joined_at, u.id`).bind(groupId).all();
   const byChannel = /* @__PURE__ */ new Map();
   for (const r of alive.results) {
     const list = byChannel.get(r.channel_id) ?? [];
-    list.push({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: avatarPath("avatars", r.id, r.avatar_url), verified: isVerified(r.username), tick: hasTick(r.username) });
+    list.push({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: avatarPath("avatars", r.id, r.avatar_url), verified: isVerified(r.username), tick: hasTick(r.username), sharing: !!r.sharing });
     byChannel.set(r.channel_id, list);
   }
   return json({
@@ -1351,6 +1357,13 @@ async function handleVoiceLeave(request, env, channelId) {
   const auth = await getAuth(request, env);
   if (!auth) return err("Unauthorized", 401);
   await env.DB.prepare("DELETE FROM voice_participants WHERE channel_id = ? AND user_id = ?").bind(channelId, auth.userId).run();
+  return json({ success: true });
+}
+async function handleVoiceShare(request, env, channelId) {
+  const auth = await getAuth(request, env);
+  if (!auth) return err("Unauthorized", 401);
+  const { on } = await request.json();
+  await env.DB.prepare("UPDATE voice_participants SET sharing = ? WHERE channel_id = ? AND user_id = ?").bind(on ? 1 : 0, channelId, auth.userId).run();
   return json({ success: true });
 }
 async function handleVoiceInfo(request, env, channelId) {
@@ -1473,11 +1486,12 @@ var index_default = {
       if (videoDoneMatch && request.method === "POST") return await handleVideoComplete(request, env, videoDoneMatch[1]);
       const videoGetMatch = path.match(/^\/api\/videos\/([a-f0-9]{32})$/);
       if (videoGetMatch && (request.method === "GET" || request.method === "HEAD")) return await handleGetVideo(request, env, videoGetMatch[1]);
-      const voiceMatch = path.match(/^\/api\/voice\/(\d+)(?:\/(join|leave))?$/);
+      const voiceMatch = path.match(/^\/api\/voice\/(\d+)(?:\/(join|leave|share))?$/);
       if (voiceMatch) {
         const cid = parseInt(voiceMatch[1]);
         if (voiceMatch[2] === "join" && request.method === "POST") return await handleVoiceJoin(request, env, cid);
         if (voiceMatch[2] === "leave" && request.method === "POST") return await handleVoiceLeave(request, env, cid);
+        if (voiceMatch[2] === "share" && request.method === "POST") return await handleVoiceShare(request, env, cid);
         if (!voiceMatch[2] && request.method === "GET") return await handleVoiceInfo(request, env, cid);
       }
       const channelsMatch = path.match(/^\/api\/groups\/(\d+)\/channels$/);

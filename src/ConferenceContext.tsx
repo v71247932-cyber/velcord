@@ -48,11 +48,12 @@ function TileVideo({ stream, mirrored }: { stream: MediaStream | null; mirrored?
 }
 
 function Tile(props: {
-    user: User; label: string; speaking: boolean; muted: boolean; stream: MediaStream | null; connecting?: boolean; mirrored?: boolean; note?: string;
+    user: User; label: string; speaking: boolean; muted: boolean; stream: MediaStream | null; connecting?: boolean; mirrored?: boolean; note?: string; live?: boolean;
 }) {
-    const { user, label, speaking, muted, stream, connecting, mirrored, note } = props;
+    const { user, label, speaking, muted, stream, connecting, mirrored, note, live } = props;
     return (
         <div className={`conf-tile ${speaking ? 'speaking' : ''}`}>
+            {live && <span className="conf-live">LIVE</span>}
             {stream ? <TileVideo stream={stream} mirrored={mirrored} /> : (
                 <div className="conf-placeholder">
                     <Avatar name={user.username} color={user.avatarColor} src={user.avatarUrl ?? undefined} size="xl" />
@@ -252,13 +253,13 @@ export function ConferenceProvider({ children }: { children: ReactNode }) {
                                 <Tile
                                     user={user} label="You" speaking={view.localSpeaking} muted={muted || deafened || !view.hasMic}
                                     stream={view.localCam ? e.localCamStream() : null} mirrored
-                                    note={view.localSharing ? 'You are sharing your screen' : undefined}
+                                    note={view.localSharing ? 'You are sharing your screen' : undefined} live={view.localSharing}
                                 />
                             )}
                             {view.peers.map(p => (
                                 <Tile
                                     key={p.id} user={p.user} label={p.user.username} speaking={p.speaking} muted={p.muted}
-                                    stream={p.camOn ? e.streamFor(p.id, 'cam') : null} connecting={!p.connected}
+                                    stream={p.camOn ? e.streamFor(p.id, 'cam') : null} connecting={!p.connected} live={p.screenOn}
                                 />
                             ))}
                         </div>

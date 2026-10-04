@@ -62,3 +62,22 @@
 .nav-voice-badges { position: absolute; right: -5px; bottom: -3px; display: flex; gap: 2px; pointer-events: none; }
 .nav-voice-badge { width: 20px; height: 20px; border-radius: 50%; background: #23a55a; color: #fff; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 3px var(--bg-primary); }
 .nav-voice-share { background: #5865f2; }
+
+/* Someone shares a screen: the call opens like a stage. The shared screen fills the window, people sit in a row below. */
+.conf-live { position: absolute; top: 6px; left: 6px; z-index: 2; padding: 2px 6px; border-radius: 5px; background: #ed4245; color: #fff; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; }
+.chan-live { margin-left: auto; padding: 1px 6px; border-radius: 5px; background: #ed4245; color: #fff; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; flex-shrink: 0; }
+.conf-window.has-share {
+  left: calc(var(--icons-width) + var(--sidebar-width) + 12px); top: 12px; right: 12px; bottom: 12px;
+  width: auto; max-height: none; padding: 10px 0 12px; gap: 8px; background: #050506; border-radius: 14px;
+}
+.has-share .conf-head { padding: 0 16px; }
+.has-share .conf-stage { flex: 1; min-height: 0; gap: 10px; }
+.has-share .conf-share { flex: 1; min-height: 0; max-height: none; aspect-ratio: auto; border-radius: 0; background: #000; }
+.has-share .conf-share .conf-video { object-fit: contain; }
+.has-share .conf-grid { display: flex; gap: 8px; padding: 0 12px; overflow-x: auto; flex-shrink: 0; }
+.has-share .conf-grid .conf-tile { flex: 0 0 190px; }
+.has-share .conf-controls { align-self: center; padding: 8px 14px; background: #17181b; border-radius: 14px; }
+@media (max-width: 768px) {
+  .conf-window.has-share { left: 0; top: 0; right: 0; bottom: 0; border-radius: 0; }
+  .has-share .conf-grid .conf-tile { flex-basis: 140px; }
+}

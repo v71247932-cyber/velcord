@@ -145,6 +145,7 @@ export default function GroupChannels({ group, channels, activeTextId, isOwner, 
                                     <div key={p.id} className="chan-person">
                                         <Avatar name={p.username} color={p.avatarColor} src={p.avatarUrl ?? undefined} size="sm" />
                                         <span>{p.username}</span>
+                                        {p.sharing && <span className="chan-live" title="Sharing their screen">LIVE</span>}
                                     </div>
                                 ))}
                             </div>

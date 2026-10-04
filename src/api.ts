@@ -243,6 +243,8 @@ export interface ConfPerson {
     avatarUrl?: string | null;
     verified?: boolean;
     tick?: boolean;
+    /** is sharing their screen in the voice channel */
+    sharing?: boolean;
 }
 
 export interface CallSignal {
