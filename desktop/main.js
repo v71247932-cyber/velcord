@@ -9,7 +9,9 @@ const path = require('path');
 const fs = require('fs');
 
 const DEFAULT_URL = 'https://velcord.scrisoricupovesti.ro/app';
-const OLD_ORIGIN = 'https://idk-site.pages.dev'; // the old address now redirects to the new one
+const OLD_ORIGIN = 'https://idk-site.pages.dev'; // the old address still serves the page
+const NEW_ORIGIN = 'https://velcord.scrisoricupovesti.ro';
+const isOurs = (origin) => origin === ORIGIN || origin === OLD_ORIGIN || origin === NEW_ORIGIN;
 
 function readConfig() {
     try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')); }
@@ -90,6 +92,14 @@ const ALLOWED = new Set([
     'notifications', 'fullscreen', 'clipboard-sanitized-write',
 ]);
 
+// A small log next to the app's data, to see why something failed (Velcord > Open log in the menu)
+function log(...parts) {
+    try {
+        const line = `${new Date().toISOString()} ${parts.map(p => (p && p.stack) ? p.stack : (typeof p === 'object' ? JSON.stringify(p) : String(p))).join(' ')}\n`;
+        fs.appendFileSync(path.join(app.getPath('userData'), 'velcord-desktop.log'), line);
+    } catch { /* ignore */ }
+}
+
 function originOf(urlLike) {
     try { return new URL(urlLike).origin; } catch { return ''; }
 }
@@ -105,27 +115,34 @@ function setupSession() {
 
     ses.setPermissionRequestHandler((wc, permission, callback, details) => {
         const origin = originOf(details && details.requestingUrl ? details.requestingUrl : wc.getURL());
-        callback(origin === ORIGIN && ALLOWED.has(permission));
+        callback(isOurs(origin) && ALLOWED.has(permission));
     });
     ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => (
-        originOf(requestingOrigin) === ORIGIN && ALLOWED.has(permission)
+        isOurs(originOf(requestingOrigin)) && ALLOWED.has(permission)
     ));
 
-    // getDisplayMedia(): macOS 15+ shows its own system picker, everything else uses ours
+    // getDisplayMedia(): always our own picker, so it works the same on every macOS version
     ses.setDisplayMediaRequestHandler(async (_request, callback) => {
         try {
-            if (IS_MAC && systemPreferences.getMediaAccessStatus('screen') === 'denied') {
-                await explainScreenPermission();
-                callback({});
-                return;
+            if (IS_MAC && systemPreferences.getMediaAccessStatus('screen') !== 'granted') {
+                // Looking at the screens once makes macOS show its permission prompt
+                try { await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } }); } catch (e) { log('getSources probe failed', e); }
+                const status = systemPreferences.getMediaAccessStatus('screen');
+                log('screen access status', status);
+                if (status !== 'granted') {
+                    await explainScreenPermission();
+                    callback({});
+                    return;
+                }
             }
             const source = await pickSource();
             if (!source) { callback({}); return; }
             callback({ video: source });
-        } catch {
+        } catch (e) {
+            log('display media request failed', e);
             callback({});
         }
-    }, { useSystemPicker: true });
+    }, { useSystemPicker: false });
 }
 
 function statePath() { return path.join(app.getPath('userData'), 'desktop-state.json'); }
@@ -142,7 +159,7 @@ async function explainScreenPermission() {
         cancelId: 1,
         title: 'Screen sharing needs permission',
         message: 'Allow Velcord to record your screen',
-        detail: 'Open System Settings > Privacy & Security > Screen & System Audio Recording, turn Velcord on, then restart Velcord.',
+        detail: 'Open System Settings > Privacy & Security > Screen & System Audio Recording, turn Velcord on, then quit Velcord completely (Cmd+Q) and open it again.',
     });
     if (response === 0) shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
 }
@@ -199,8 +216,18 @@ function pickSource() {
                 thumbnailSize: { width: 480, height: 300 },
                 fetchWindowIcons: false,
             });
-        } catch { /* fall through */ }
-        if (!sources.length) { resolve(null); return; }
+        } catch (e) { log('getSources failed', e); }
+        if (!sources.length) {
+            log('no screens or windows were returned');
+            dialog.showMessageBox(win || undefined, {
+                type: 'warning', buttons: ['Open System Settings', 'Close'], defaultId: 0, cancelId: 1,
+                title: 'Screen sharing',
+                message: 'Velcord cannot see any screen',
+                detail: 'In System Settings > Privacy & Security > Screen & System Audio Recording, select Velcord and press the minus button, then press plus and add Velcord from the Applications folder. Quit Velcord completely (Cmd+Q) and open it again.',
+            }).then(({ response }) => { if (response === 0) shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'); });
+            resolve(null);
+            return;
+        }
 
         const items = sources.map(s => ({ id: s.id, name: s.name, thumb: s.thumbnail.toDataURL(), screen: s.id.startsWith('screen:') }));
         const byId = new Map(sources.map(s => [s.id, s]));
@@ -259,6 +286,7 @@ function buildMenu() {
                 { role: 'about' },
                 { type: 'separator' },
                 { label: 'Check permissions…', click: () => askForPermissions({ force: true }) },
+                { label: 'Open log', click: () => shell.openPath(path.join(app.getPath('userData'), 'velcord-desktop.log')) },
                 { type: 'separator' },
                 { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' },
                 { type: 'separator' },

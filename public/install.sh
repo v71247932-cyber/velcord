@@ -186,6 +186,9 @@ if [ "$PLATFORM" = "darwin" ]; then
   xattr -cr "$APP" 2>/dev/null || true
   if command -v codesign >/dev/null 2>&1; then
     codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || warn "Could not sign the app locally. Permissions may not work."
+    # A new signature makes macOS keep a stale permission entry that looks on but does nothing; clear it so macOS asks again
+    tccutil reset ScreenCapture com.velcord.desktop >/dev/null 2>&1 || true
+    tccutil reset Microphone com.velcord.desktop >/dev/null 2>&1 || true
   fi
   touch "$APP"
   [ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$APP" >/dev/null 2>&1 || true
