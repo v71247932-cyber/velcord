@@ -458,10 +458,10 @@ export default function MainLayout() {
                         <div className="user-bar-bg" style={bannerStyle(user!)} />
                     )}
                     <div className="user-bar-main" onClick={() => setShowProfileMenu(true)} title="Profile settings">
-                        <Avatar name={user!.username} color={user!.avatarColor} src={user!.avatarUrl} size="md" status={user!.appearOffline ? 'offline' : 'online'} />
+                        <Avatar name={user!.username} color={user!.avatarColor} src={user!.avatarUrl} size="md" status="online" />
                         <div className="user-info">
                             <div className="user-name">{user!.username}</div>
-                            <div className="user-tag">{deafened ? 'Deafened' : muted ? 'Muted' : user!.appearOffline ? 'Appearing offline' : 'Online'}</div>
+                            <div className="user-tag">{deafened ? 'Deafened' : muted ? 'Muted' : 'Online'}</div>
                         </div>
                     </div>
                     <button className={`user-bar-btn ${muted || deafened ? 'is-off' : ''}`} onClick={toggleMute} title={muted || deafened ? 'Unmute' : 'Mute'}>
