@@ -30,8 +30,8 @@
 button.up-icon-btn:hover { background: var(--bg-hover); }
 @keyframes up-menu-in { from { opacity: 0; transform: translateX(-8px) scale(0.92); } to { opacity: 1; transform: none; } }
 .up-menu-wrap { position: relative; }
-.up-menu { position: absolute; top: 0; left: 48px; transform-origin: left top; animation: up-menu-in 0.16s cubic-bezier(0.2, 0.8, 0.2, 1); z-index: 4; min-width: 170px; padding: 6px; border-radius: 10px; background: var(--bg-primary); border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
-.up-menu button { display: block; width: 100%; text-align: left; padding: 9px 10px; border: none; border-radius: 6px; background: none; color: var(--text-primary); font-size: 14px; cursor: pointer; }
+.up-menu { position: absolute; top: 0; left: 48px; transform-origin: left top; animation: up-menu-in 0.16s cubic-bezier(0.2, 0.8, 0.2, 1); z-index: 4; min-width: 140px; padding: 4px; border-radius: 10px; background: var(--bg-primary); border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+.up-menu button { display: block; width: 100%; text-align: left; padding: 6px 9px; border: none; border-radius: 6px; background: none; color: var(--text-primary); font-size: 12px; cursor: pointer; }
 .up-menu button:hover { background: var(--bg-hover); }
 .up-menu button.danger { color: #ed4245; }
 .up-field { margin-top: 18px; }
