@@ -1,7 +1,7 @@
 /* Profile window opened by clicking a person's picture */
 .up-overlay { z-index: 1100; }
 .up-window {
-  position: relative; display: flex; width: min(720px, 94vw); height: min(560px, 88vh);
+  position: relative; display: flex; width: min(800px, 94vw); height: min(560px, 88vh);
   background: var(--bg-primary); border-radius: 16px; overflow: hidden;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6); border: 1px solid rgba(255, 255, 255, 0.06);
 }
@@ -41,7 +41,7 @@ button.up-icon-btn:hover { background: var(--bg-hover); }
 .up-note::placeholder { color: var(--text-muted); }
 .up-note:focus { background: rgba(255, 255, 255, 0.04); padding-left: 8px; border-radius: 6px; }
 .up-right { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 0 20px; background: #000; }
-.up-tabs { display: flex; gap: 20px; padding-top: 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-right: 40px; }
+.up-tabs { display: flex; gap: 20px; padding-top: 58px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); overflow-x: auto; scrollbar-width: none; }
 .up-tabs button { background: none; border: none; border-bottom: 2px solid transparent; padding: 0 0 12px; margin-bottom: -1px; color: var(--text-secondary); font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .up-tabs button:hover { color: var(--text-primary); }
 .up-tabs button.active { color: var(--text-primary); border-bottom-color: var(--text-primary); }
