@@ -610,11 +610,12 @@ async function handleGetFriends(request: Request, env: Env): Promise<Response> {
       SELECT u.id, u.username, u.avatar_color, ${AV('u')} as avatar_url, ${BANNER_COLS('u')}, u.last_seen, f.id as friendship_id,
              (SELECT COUNT(*) FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL AND ${NOT_EXPIRED('dm.created_at')}) as unread,
              (SELECT MAX(dm.id) FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL AND ${NOT_EXPIRED('dm.created_at')}) as last_unread_id,
-             (SELECT dm.content FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL AND ${NOT_EXPIRED('dm.created_at')} ORDER BY dm.id DESC LIMIT 1) as preview
+             (SELECT dm.content FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL AND ${NOT_EXPIRED('dm.created_at')} ORDER BY dm.id DESC LIMIT 1) as preview,
+             (SELECT MAX(dm.id) FROM direct_messages dm WHERE ((dm.sender_id = u.id AND dm.receiver_id = ?) OR (dm.sender_id = ? AND dm.receiver_id = u.id)) AND ${NOT_EXPIRED('dm.created_at')}) as last_msg_id
       FROM friendships f
       JOIN users u ON u.id = CASE WHEN f.requester_id = ? THEN f.addressee_id ELSE f.requester_id END
       WHERE (f.requester_id = ? OR f.addressee_id = ?) AND f.status = 'accepted'
-    `).bind(me, me, me, me, me, me),
+    `).bind(me, me, me, me, me, me, me, me),
     env.DB.prepare(`
       SELECT u.id, u.username, u.avatar_color, ${AV('u')} as avatar_url, ${BANNER_COLS('u')}, u.last_seen, f.id as friendship_id
       FROM friendships f JOIN users u ON u.id = f.addressee_id
@@ -635,7 +636,7 @@ async function handleGetFriends(request: Request, env: Env): Promise<Response> {
     online: isVerified(r.username) || isOnline(r.last_seen), friendshipId: r.friendship_id,
   });
   return json({
-    friends: friends.results.map((r: any) => ({ ...person(r), unread: r.unread || 0, lastUnreadId: r.last_unread_id || 0, preview: previewOf(r.preview) })),
+    friends: friends.results.map((r: any) => ({ ...person(r), unread: r.unread || 0, lastUnreadId: r.last_unread_id || 0, preview: previewOf(r.preview), lastMessageId: r.last_msg_id || 0 })),
     pendingSent: sent.results.map(person),
     pendingReceived: received.results.map(person),
   });

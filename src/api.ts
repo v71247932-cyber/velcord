@@ -175,6 +175,8 @@ export interface FriendUser {
     tick?: boolean;
     online?: boolean;
     unread?: number;
+    /** id of the newest message in the conversation with this friend (0 = none); sorts the list */
+    lastMessageId?: number;
     lastUnreadId?: number;
     preview?: string | null;
     friendshipId: number;

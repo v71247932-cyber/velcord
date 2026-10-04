@@ -101,6 +101,7 @@ export function useChat({ key, me, fetchMessages, sendMessage, fetchStatuses }: 
         setMessages(prev => [...prev, optimistic]);
         try {
             const saved = await sendMessage(content);
+            window.dispatchEvent(new Event('velcord:message-sent')); // lets the sidebar re-order its conversations
             lastId.current = Math.max(lastId.current, saved.id);
             setMessages(prev => {
                 const withoutTemp = prev.filter(m => m.id !== tempId);

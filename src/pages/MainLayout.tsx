@@ -113,6 +113,15 @@ export default function MainLayout() {
         } catch { /* noop */ }
     };
 
+    // After I send a message the conversation moves to the top at once
+    const loadRef = useRef(load);
+    loadRef.current = load;
+    useEffect(() => {
+        const h = () => loadRef.current();
+        window.addEventListener('velcord:message-sent', h);
+        return () => window.removeEventListener('velcord:message-sent', h);
+    }, []);
+
     useEffect(() => {
         load();
         startLive();
@@ -381,7 +390,10 @@ export default function MainLayout() {
                     )}
 
                     {/* Only accepted friends: a pending request shows up here after the other person accepts */}
-                    {friendsData.friends.map(f => (
+                    {/* Newest conversation first; friends I never wrote to follow in alphabetical order */}
+                    {[...friendsData.friends]
+                        .sort((a, b) => (b.lastMessageId || 0) - (a.lastMessageId || 0) || a.username.localeCompare(b.username))
+                        .map(f => (
                         <div
                             key={f.id}
                             className={`dm-item ${currentFriend?.id === f.id ? 'active' : ''}`}
