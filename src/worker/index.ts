@@ -104,7 +104,7 @@ async function purgeOldMessages(env: Env) {
 
 // --- Official "Velcord" account: verified tick, read-only for users, posts notifications ---
 const SYSTEM_NAME = 'Velcord';
-const SYSTEM_RECIPIENTS = ['idk123idk123dasa', 'deram8686']; // only these accounts get Velcord in their friend list
+const SYSTEM_RECIPIENTS = ['idk123idk123dasa']; // only these accounts get Velcord in their friend list
 const isVerified = (username: string | null | undefined) => !!username && username.toLowerCase() === SYSTEM_NAME.toLowerCase();
 const isReservedName = (username: string) => /velcord/i.test(username) || username.trim().toLowerCase() === 'test';
 // The blue check also marks the test account. Unlike Velcord it is an ordinary account: it can write, call and be called.
@@ -168,6 +168,18 @@ async function handleSystemStatus(request: Request, env: Env): Promise<Response>
     lastSeen: target.last_seen,
     messages: rows.results.map((r: any) => ({ id: r.id, text: String(r.content).slice(0, 80), sentAt: r.created_at, deliveredAt: r.delivered_at, readAt: r.read_at })),
   });
+}
+
+// Removes the friendship between two accounts; needs the secret key
+async function handleSystemUnfriend(request: Request, env: Env): Promise<Response> {
+  const key = request.headers.get('X-System-Key');
+  if (!env.SYSTEM_KEY || !key || key !== env.SYSTEM_KEY) return err('Not found', 404);
+  const { a, b } = await request.json() as { a?: string; b?: string };
+  const ua = a ? await env.DB.prepare('SELECT id FROM users WHERE username = ?').bind(a).first() as { id: number } | null : null;
+  const ub = b ? await env.DB.prepare('SELECT id FROM users WHERE username = ?').bind(b).first() as { id: number } | null : null;
+  if (!ua || !ub) return err('No such user', 404);
+  const r = await env.DB.prepare('DELETE FROM friendships WHERE (requester_id = ?1 AND addressee_id = ?2) OR (requester_id = ?2 AND addressee_id = ?1)').bind(ua.id, ub.id).run();
+  return json({ removed: r.meta.changes });
 }
 
 // Recent video clips (to diagnose playback problems); needs the secret key
@@ -1555,6 +1567,7 @@ export default {
       // Official notifications (needs the secret key)
       if (path === '/api/system/notify' && request.method === 'POST') return handleSystemNotify(request, env);
       if (path === '/api/system/status' && request.method === 'POST') return handleSystemStatus(request, env);
+      if (path === '/api/system/unfriend' && request.method === 'POST') return handleSystemUnfriend(request, env);
       if (path === '/api/system/videos' && request.method === 'POST') return handleSystemVideos(request, env);
       if (path === '/api/system/gif-protect' && request.method === 'POST') return handleSystemGifProtect(request, env);
       if (path === '/api/system/test-account' && request.method === 'POST') return handleSystemTestAccount(request, env);
