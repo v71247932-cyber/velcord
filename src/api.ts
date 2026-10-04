@@ -268,6 +268,7 @@ export interface UserProfile {
     bannerColor1?: string | null;
     bannerColor2?: string | null;
     verified?: boolean;
+    tick?: boolean;
     online: boolean;
     /** unix seconds */
     memberSince: number;

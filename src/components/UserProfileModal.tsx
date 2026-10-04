@@ -93,7 +93,7 @@ export default function UserProfileModal({ userId, friends, groups, onClose, onM
                                 <Avatar name={p.username} color={p.avatarColor} src={p.avatarUrl ?? undefined} size="xl" zoomable status={p.online ? 'online' : 'offline'} />
                             </div>
                             <div className="up-info">
-                                <div className="up-name">{p.username}{p.verified && <VerifiedBadge size={20} />}</div>
+                                <div className="up-name">{p.username}{(p.verified || p.tick) && <VerifiedBadge size={20} />}</div>
                                 <div className={`up-status ${p.online ? 'is-online' : ''}`}>{p.online ? 'Online' : 'Offline'}</div>
 
                                 <div className="up-actions">

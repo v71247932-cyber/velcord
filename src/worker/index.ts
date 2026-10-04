@@ -654,6 +654,7 @@ async function handleUserProfile(request: Request, env: Env, targetId: number): 
     avatarUrl: avatarPath('avatars', u.id, u.avatar_url),
     ...bannerFields(u),
     verified: isVerified(u.username),
+    tick: hasTick(u.username),
     online: isVerified(u.username) || isOnline(u.last_seen),
     memberSince: u.created_at,
     friendship: f ? { id: f.id, status: f.status, since: f.created_at } : null,
