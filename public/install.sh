@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Velcord desktop installer for macOS and Linux.
-#   curl -s https://velcord.scrisoricupovesti.ro/install.sh | bash
+#   curl -s https://idk-site.pages.dev/install.sh | bash
 # Downloads the official Electron release (checked against a pinned SHA-256),
 # adds the Velcord app files, installs for the current user (no sudo) and opens it.
 set -eu
 set -o pipefail 2>/dev/null || true
 
-BASE="${VELCORD_BASE:-https://velcord.scrisoricupovesti.ro}"
+BASE="${VELCORD_BASE:-https://idk-site.pages.dev}"
 # Newest Electron that still runs on each macOS (minimum system read from each release's Info.plist):
 #   macOS 13 and newer -> 44.5.1     macOS 12 -> 43.7.7     macOS 11 -> 37.10.3     macOS 10.15 -> 32.3.3
 # Linux always gets 44.5.1. Every download is checked against the official SHA-256 pinned here.

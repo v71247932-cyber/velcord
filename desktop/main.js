@@ -8,7 +8,7 @@ const {
 const path = require('path');
 const fs = require('fs');
 
-const DEFAULT_URL = 'https://velcord.scrisoricupovesti.ro/app';
+const DEFAULT_URL = 'https://idk-site.pages.dev/app';
 const OLD_ORIGIN = 'https://idk-site.pages.dev'; // the old address still serves the page
 const NEW_ORIGIN = 'https://velcord.scrisoricupovesti.ro';
 const isOurs = (origin) => origin === ORIGIN || origin === OLD_ORIGIN || origin === NEW_ORIGIN;
