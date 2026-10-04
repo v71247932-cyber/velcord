@@ -15,7 +15,7 @@ import GroupSettingsModal from '../components/GroupSettingsModal';
 import { onLive, startLive, stopLive } from '../live';
 import BannerCropModal from '../components/BannerCropModal';
 import { askNotificationPermissionOnFirstClick, notify, setBadge, isDesktopApp, isOldDesktopShell, isMobileDevice, isInstalledPwa, isIOS, INSTALL_COMMAND } from '../notify';
-import { PhoneIcon, VideoIcon, UsersIcon, PlusIcon } from '../components/Icons';
+import { PhoneIcon, VideoIcon, UsersIcon, PlusIcon, SpeakerIcon, MonitorIcon } from '../components/Icons';
 import UserProfileModal from '../components/UserProfileModal';
 import { PROFILE_EVENT } from '../components/Avatar';
 import ProfileCard from '../components/ProfileCard';
@@ -355,8 +355,8 @@ export default function MainLayout() {
                 {unreadFriends.length > 0 && <div className="nav-separator" />}
 
                 {groups.map(g => (
+                    <div key={g.id} className="nav-group-wrap">
                     <button
-                        key={g.id}
                         className={`nav-icon-btn nav-group-btn ${currentGroup?.id === g.id ? 'active' : ''} ${(g.callCount || 0) > 0 ? 'in-call' : ''}`}
                         onClick={(e) => {
                             if (e.shiftKey) handleDeleteGroup(e, g);
@@ -369,6 +369,13 @@ export default function MainLayout() {
                             ? <img src={g.avatarUrl} alt={g.name} />
                             : <span>{g.name.substring(0, 2).toUpperCase()}</span>}
                     </button>
+                    {(g.callCount || 0) > 0 && (
+                        <span className="nav-voice-badges">
+                            <span className="nav-voice-badge" title="Someone is in the voice channel"><SpeakerIcon size={12} /></span>
+                            {(g.sharingCount || 0) > 0 && <span className="nav-voice-badge nav-voice-share" title="Someone is sharing their screen"><MonitorIcon size={12} /></span>}
+                        </span>
+                    )}
+                    </div>
                 ))}
 
                 <button

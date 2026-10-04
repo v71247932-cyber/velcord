@@ -128,6 +128,8 @@ export const api = {
 
     confLeave: (roomId: number) => request<{ success: boolean }>('POST', `/api/voice/${roomId}/leave`, {}),
 
+    confShare: (roomId: number, on: boolean) => request<{ success: boolean }>('POST', `/api/voice/${roomId}/share`, { on }),
+
     callPoll: (after: number, conf?: number) =>
         request<{ now: number; lastId?: number; roster?: ConfPerson[]; signals: CallSignal[] }>('GET', after < 0 ? '/api/calls/poll?init=1' : `/api/calls/poll?after=${after}${conf ? `&conf=${conf}` : ''}`),
 
@@ -264,6 +266,8 @@ export interface Group {
     memberCount?: number;
     /** how many people are in a conference call of this group right now */
     callCount?: number;
+    /** how many of them are sharing their screen */
+    sharingCount?: number;
 }
 
 export interface UserProfile {

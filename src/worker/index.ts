@@ -819,7 +819,8 @@ async function handleGetGroups(request: Request, env: Env): Promise<Response> {
   const groups = await env.DB.prepare(`
     SELECT g.id, g.name, g.owner_id, g.created_at, ${AV('g')} as avatar_url, ${BANNER_COLS('g')},
            (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) as memberCount,
-           (SELECT COUNT(*) FROM voice_participants vp JOIN channels vc ON vc.id = vp.channel_id WHERE vc.group_id = g.id AND vp.last_seen > unixepoch() - ${CONF_ALIVE}) as callCount
+           (SELECT COUNT(*) FROM voice_participants vp JOIN channels vc ON vc.id = vp.channel_id WHERE vc.group_id = g.id AND vp.last_seen > unixepoch() - ${CONF_ALIVE}) as callCount,
+           (SELECT COUNT(*) FROM voice_participants vp JOIN channels vc ON vc.id = vp.channel_id WHERE vc.group_id = g.id AND vp.sharing = 1 AND vp.last_seen > unixepoch() - ${CONF_ALIVE}) as sharingCount
     FROM groups g
     JOIN group_members gm ON g.id = gm.group_id
     WHERE gm.user_id = ?
@@ -837,6 +838,7 @@ async function handleGetGroups(request: Request, env: Env): Promise<Response> {
     bannerColor2: g.banner_c2 ?? null,
     memberCount: g.memberCount,
     callCount: g.callCount || 0,
+    sharingCount: g.sharingCount || 0,
   })));
 }
 
@@ -1024,6 +1026,7 @@ function ensureSchema(env: Env): Promise<void> {
       try { await env.DB.prepare('ALTER TABLE users ADD COLUMN last_seen INTEGER').run(); } catch { /* already exists */ }
       try { await env.DB.prepare('ALTER TABLE groups ADD COLUMN avatar_url TEXT').run(); } catch { /* already exists */ }
       try { await env.DB.prepare('ALTER TABLE users ADD COLUMN gifs_protected INTEGER NOT NULL DEFAULT 0').run(); } catch { /* already exists */ }
+      try { await env.DB.prepare('ALTER TABLE voice_participants ADD COLUMN sharing INTEGER NOT NULL DEFAULT 0').run(); } catch { /* already exists, or the table is created below */ }
       for (const col of ['banner_url TEXT', 'banner_c1 TEXT', 'banner_c2 TEXT']) {
         try { await env.DB.prepare(`ALTER TABLE users ADD COLUMN ${col}`).run(); } catch { /* already exists */ }
         try { await env.DB.prepare(`ALTER TABLE groups ADD COLUMN ${col}`).run(); } catch { /* already exists */ }
@@ -1563,6 +1566,15 @@ async function handleVoiceLeave(request: Request, env: Env, channelId: number): 
   return json({ success: true });
 }
 
+// Tells the group list that I am (or am no longer) sharing my screen in this room
+async function handleVoiceShare(request: Request, env: Env, channelId: number): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const { on } = await request.json() as { on?: boolean };
+  await env.DB.prepare('UPDATE voice_participants SET sharing = ? WHERE channel_id = ? AND user_id = ?').bind(on ? 1 : 0, channelId, auth.userId).run();
+  return json({ success: true });
+}
+
 async function handleVoiceInfo(request: Request, env: Env, channelId: number): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
@@ -1706,11 +1718,12 @@ export default {
       if (videoGetMatch && (request.method === 'GET' || request.method === 'HEAD')) return await handleGetVideo(request, env, videoGetMatch[1]);
 
       // Calls
-      const voiceMatch = path.match(/^\/api\/voice\/(\d+)(?:\/(join|leave))?$/);
+      const voiceMatch = path.match(/^\/api\/voice\/(\d+)(?:\/(join|leave|share))?$/);
       if (voiceMatch) {
         const cid = parseInt(voiceMatch[1]);
         if (voiceMatch[2] === 'join' && request.method === 'POST') return await handleVoiceJoin(request, env, cid);
         if (voiceMatch[2] === 'leave' && request.method === 'POST') return await handleVoiceLeave(request, env, cid);
+        if (voiceMatch[2] === 'share' && request.method === 'POST') return await handleVoiceShare(request, env, cid);
         if (!voiceMatch[2] && request.method === 'GET') return await handleVoiceInfo(request, env, cid);
       }
       const channelsMatch = path.match(/^\/api\/groups\/(\d+)\/channels$/);

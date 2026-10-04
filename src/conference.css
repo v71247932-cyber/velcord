@@ -56,3 +56,9 @@
   .conf-controls .call-btn { flex: 1 1 calc(50% - 8px); }
 }
 .header-in-call { margin-left: auto; font-size: 13px; font-weight: 600; color: #23a55a; }
+
+/* Speaker (someone is in the voice channel) and monitor (someone shares a screen) on a group's icon */
+.nav-group-wrap { position: relative; flex-shrink: 0; }
+.nav-voice-badges { position: absolute; right: -5px; bottom: -3px; display: flex; gap: 2px; pointer-events: none; }
+.nav-voice-badge { width: 20px; height: 20px; border-radius: 50%; background: #23a55a; color: #fff; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 3px var(--bg-primary); }
+.nav-voice-share { background: #5865f2; }

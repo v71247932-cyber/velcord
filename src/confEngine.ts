@@ -134,7 +134,7 @@ export class ConfEngine {
 
     /** Registers again after the server forgot us (for example after the computer slept). */
     async rejoin() {
-        try { await api.confJoin(this.roomId, false); } catch { /* try again on the next round */ }
+        try { await api.confJoin(this.roomId, false); if (this.screen) api.confShare(this.roomId, true).catch(() => {}); } catch { /* try again on the next round */ }
     }
 
     async leave(notifyServer = true) {
@@ -227,6 +227,7 @@ export class ConfEngine {
         try { track.contentHint = 'detail'; } catch { /* unsupported */ }
         track.onended = () => this.stopShare();
         this.screen = stream;
+        api.confShare(this.roomId, true).catch(() => {});
         for (const p of this.peers.values()) this.publishScreen(p);
         this.emit();
     }
@@ -236,6 +237,7 @@ export class ConfEngine {
         for (const p of this.peers.values()) p.screenSender?.replaceTrack(null).catch(() => {});
         this.screen.getTracks().forEach(t => t.stop());
         this.screen = null;
+        api.confShare(this.roomId, false).catch(() => {});
         this.broadcast('conf-share', { on: false, id: this.screenCarrier.id });
         this.emit();
     }
