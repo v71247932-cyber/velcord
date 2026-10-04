@@ -444,7 +444,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
             const p = peerRef.current;
             const token = localStorage.getItem('velcord_token');
             if (p && token) {
-                fetch('/api/calls/signal', {
+                fetch(`${import.meta.env.VITE_API_URL || ''}/api/calls/signal`, {
                     method: 'POST', keepalive: true,
                     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                     body: JSON.stringify({ to: p.id, type: 'hangup' }),

@@ -669,7 +669,7 @@ async function handleGetGroups(request, env) {
   const groups = await env.DB.prepare(`
     SELECT g.id, g.name, g.owner_id, g.created_at, ${AV("g")} as avatar_url, ${BANNER_COLS("g")},
            (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) as memberCount,
-           (SELECT COUNT(*) FROM conf_participants cp WHERE cp.group_id = g.id AND cp.last_seen > unixepoch() - ${CONF_ALIVE}) as callCount
+           (SELECT COUNT(*) FROM voice_participants vp JOIN channels vc ON vc.id = vp.channel_id WHERE vc.group_id = g.id AND vp.last_seen > unixepoch() - ${CONF_ALIVE}) as callCount
     FROM groups g
     JOIN group_members gm ON g.id = gm.group_id
     WHERE gm.user_id = ?
@@ -780,20 +780,21 @@ async function handleDeleteGroup(request, env, groupId) {
 async function handleGetGroupMessages(request, env, groupId) {
   const auth = await getAuth(request, env);
   if (!auth) return err("Unauthorized", 401);
+  if (!await isGroupMember(env, groupId, auth.userId)) return err("Not a member of this group", 403);
   const url = new URL(request.url);
   const afterParam = url.searchParams.get("after");
   const initial = afterParam === "0";
   const afterId = parseInt(afterParam || "0") || 0;
   const legacySince = afterParam === null ? url.searchParams.get("since") || "0" : null;
+  const asked = parseInt(url.searchParams.get("channel") || "");
+  const generalId = Number.isInteger(asked) ? 0 : await defaultTextChannel(env, groupId);
+  const channelId = Number.isInteger(asked) ? asked : generalId;
+  const inChannel = `(gm.channel_id = ? OR (gm.channel_id IS NULL AND ? = ?))`;
+  const chBind = [channelId, channelId, generalId];
   const select = `SELECT gm.id, gm.content, gm.created_at,
            u.id as sender_id, u.username as sender_username, u.avatar_color as sender_avatar_color, ${AV("u")} as sender_avatar_url
     FROM group_messages gm JOIN users u ON u.id = gm.sender_id`;
-  const messagesStmt = legacySince !== null ? env.DB.prepare(`${select} WHERE gm.group_id = ? AND ${NOT_EXPIRED("gm.created_at")} AND gm.created_at > ? ORDER BY gm.created_at ASC, gm.id ASC LIMIT 100`).bind(groupId, legacySince) : initial ? env.DB.prepare(`${select} WHERE gm.group_id = ? AND ${NOT_EXPIRED("gm.created_at")} ORDER BY gm.id DESC LIMIT ${PAGE_FIRST}`).bind(groupId) : env.DB.prepare(`${select} WHERE gm.group_id = ? AND ${NOT_EXPIRED("gm.created_at")} AND gm.id > ? ORDER BY gm.id ASC LIMIT 100`).bind(groupId, afterId);
-  const [member, messages] = await env.DB.batch([
-    env.DB.prepare("SELECT id FROM group_members WHERE group_id = ? AND user_id = ?").bind(groupId, auth.userId),
-    messagesStmt
-  ]);
-  if (member.results.length === 0) return err("Not a member of this group", 403);
+  const messages = legacySince !== null ? await env.DB.prepare(`${select} WHERE gm.group_id = ? AND ${inChannel} AND ${NOT_EXPIRED("gm.created_at")} AND gm.created_at > ? ORDER BY gm.created_at ASC, gm.id ASC LIMIT 100`).bind(groupId, ...chBind, legacySince).all() : initial ? await env.DB.prepare(`${select} WHERE gm.group_id = ? AND ${inChannel} AND ${NOT_EXPIRED("gm.created_at")} ORDER BY gm.id DESC LIMIT ${PAGE_FIRST}`).bind(groupId, ...chBind).all() : await env.DB.prepare(`${select} WHERE gm.group_id = ? AND ${inChannel} AND ${NOT_EXPIRED("gm.created_at")} AND gm.id > ? ORDER BY gm.id ASC LIMIT 100`).bind(groupId, ...chBind, afterId).all();
   const rows = initial ? [...messages.results].reverse() : messages.results;
   return json(rows.map((m) => ({
     id: m.id,
@@ -814,15 +815,20 @@ async function handleDeleteGroupMessage(request, env, messageId) {
 async function handleSendGroupMessage(request, env, groupId) {
   const auth = await getAuth(request, env);
   if (!auth) return err("Unauthorized", 401);
-  const { content } = await request.json();
+  const { content, channelId: asked } = await request.json();
   if (!content?.trim()) return err("Message cannot be empty");
+  if (!await isGroupMember(env, groupId, auth.userId)) return err("Not a member of this group", 403);
+  let channelId = await defaultTextChannel(env, groupId);
+  if (Number.isInteger(asked) && asked !== channelId) {
+    const ch = await env.DB.prepare("SELECT id FROM channels WHERE id = ? AND group_id = ? AND kind = 'text'").bind(asked, groupId).first();
+    if (!ch) return err("Channel not found", 404);
+    channelId = asked;
+  }
   const result = await env.DB.prepare(`
-    INSERT INTO group_messages (group_id, sender_id, content)
-    SELECT ?, ?, ?
-    WHERE EXISTS (SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?)
+    INSERT INTO group_messages (group_id, sender_id, content, channel_id)
+    VALUES (?, ?, ?, ?)
     RETURNING id, created_at
-  `).bind(groupId, auth.userId, content.trim(), groupId, auth.userId).first();
-  if (!result) return err("Not a member of this group", 403);
+  `).bind(groupId, auth.userId, content.trim(), channelId).first();
   await env.DB.prepare("DELETE FROM typing WHERE k = ?").bind(`g:${auth.userId}:${groupId}`).run();
   return json({ id: result.id, content: content.trim(), createdAt: result.created_at, senderId: auth.userId }, 201);
 }
@@ -911,6 +917,23 @@ function ensureSchema(env) {
           linked_id INTEGER NOT NULL,
           PRIMARY KEY (user_id, linked_id)
         )`),
+        env.DB.prepare(`CREATE TABLE IF NOT EXISTS channels (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          group_id INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          position INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
+        )`),
+        env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_channels_group ON channels(group_id, kind, position)"),
+        env.DB.prepare(`CREATE TABLE IF NOT EXISTS voice_participants (
+          channel_id INTEGER NOT NULL,
+          user_id INTEGER NOT NULL,
+          joined_at INTEGER NOT NULL,
+          last_seen INTEGER NOT NULL,
+          PRIMARY KEY (channel_id, user_id)
+        )`),
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS conf_participants (
           group_id INTEGER NOT NULL,
           user_id INTEGER NOT NULL,
@@ -938,6 +961,10 @@ function ensureSchema(env) {
       }
       try {
         await env.DB.prepare("ALTER TABLE call_signals ADD COLUMN conf INTEGER").run();
+      } catch {
+      }
+      try {
+        await env.DB.prepare("ALTER TABLE group_messages ADD COLUMN channel_id INTEGER").run();
       } catch {
       }
     })().catch((e) => {
@@ -1177,54 +1204,161 @@ async function handleMessageStatus(request, env, otherUserId) {
   return json(rows.results.map((r) => ({ id: r.id, deliveredAt: r.delivered_at, readAt: r.read_at })));
 }
 var SIGNAL_TYPES = ["invite", "accept", "reject", "hangup", "desc", "ice", "share", "cam"];
+var MAX_CHANNELS = 25;
+var MAX_VOICE = 10;
 var CONF_MAX = 6;
 var CONF_ALIVE = 20;
 var CONF_SIGNAL_TYPES = ["conf-desc", "conf-ice", "conf-cam", "conf-share", "conf-mute"];
 async function isGroupMember(env, groupId, userId) {
   return !!await env.DB.prepare("SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?").bind(groupId, userId).first();
 }
-async function confRoster(env, groupId) {
+async function channelFor(env, channelId, userId) {
+  return await env.DB.prepare(`SELECT c.id, c.group_id, c.name, c.kind, c.position FROM channels c
+    JOIN group_members gm ON gm.group_id = c.group_id AND gm.user_id = ? WHERE c.id = ?`).bind(userId, channelId).first();
+}
+async function defaultTextChannel(env, groupId) {
+  const row = await env.DB.prepare("SELECT id FROM channels WHERE group_id = ? AND kind = 'text' ORDER BY position, id LIMIT 1").bind(groupId).first();
+  if (row) return row.id;
+  const made = await env.DB.prepare("INSERT INTO channels (group_id, name, kind, position) VALUES (?, 'general', 'text', 0) RETURNING id").bind(groupId).first();
+  await env.DB.prepare("UPDATE group_messages SET channel_id = ? WHERE group_id = ? AND channel_id IS NULL").bind(made.id, groupId).run();
+  return made.id;
+}
+function cleanChannelName(raw) {
+  if (typeof raw !== "string") return null;
+  const n = raw.replace(/[\u0000-\u001f<>]/g, "").replace(/\s+/g, " ").trim();
+  return n.length >= 1 && n.length <= 32 ? n : null;
+}
+async function voiceRoster(env, channelId) {
   const rows = await env.DB.prepare(`
     SELECT u.id, u.username, u.avatar_color, ${AV("u")} as avatar_url
-    FROM conf_participants cp JOIN users u ON u.id = cp.user_id
-    WHERE cp.group_id = ? AND cp.last_seen > unixepoch() - ${CONF_ALIVE}
-    ORDER BY cp.joined_at, u.id
-  `).bind(groupId).all();
+    FROM voice_participants vp JOIN users u ON u.id = vp.user_id
+    WHERE vp.channel_id = ? AND vp.last_seen > unixepoch() - ${CONF_ALIVE}
+    ORDER BY vp.joined_at, u.id
+  `).bind(channelId).all();
   return rows.results.map((r) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: avatarPath("avatars", r.id, r.avatar_url), verified: isVerified(r.username), tick: hasTick(r.username) }));
 }
-async function handleConfJoin(request, env, groupId) {
+async function handleListChannels(request, env, groupId) {
   const auth = await getAuth(request, env);
   if (!auth) return err("Unauthorized", 401);
   if (!await isGroupMember(env, groupId, auth.userId)) return err("Not a member of this group", 403);
-  const { video } = await request.json().catch(() => ({}));
-  await env.DB.prepare(`DELETE FROM conf_participants WHERE group_id = ? AND last_seen <= unixepoch() - ${CONF_ALIVE}`).bind(groupId).run();
-  const others = await env.DB.prepare("SELECT COUNT(*) as c FROM conf_participants WHERE group_id = ? AND user_id != ?").bind(groupId, auth.userId).first();
-  const already = await env.DB.prepare("SELECT 1 FROM conf_participants WHERE group_id = ? AND user_id = ?").bind(groupId, auth.userId).first();
-  if (!already && others.c >= CONF_MAX) return err(`This call is full (${CONF_MAX} people).`, 409);
-  await env.DB.prepare("INSERT OR REPLACE INTO conf_participants (group_id, user_id, joined_at, last_seen) VALUES (?, ?, unixepoch(), unixepoch())").bind(groupId, auth.userId).run();
-  let started = false;
-  if (others.c === 0) {
-    started = true;
-    const group = await env.DB.prepare("SELECT name FROM groups WHERE id = ?").bind(groupId).first();
-    const members = await env.DB.prepare("SELECT user_id FROM group_members WHERE group_id = ? AND user_id != ?").bind(groupId, auth.userId).all();
-    const payload = JSON.stringify({ groupName: group?.name ?? "Group", video: !!video });
-    for (const m of members.results) {
-      await env.DB.prepare("INSERT INTO call_signals (from_id, to_id, type, payload, conf) VALUES (?, ?, ?, ?, ?)").bind(auth.userId, m.user_id, "conf-invite", payload, groupId).run();
-    }
+  await defaultTextChannel(env, groupId);
+  const rows = await env.DB.prepare("SELECT id, name, kind, position FROM channels WHERE group_id = ? ORDER BY CASE kind WHEN 'text' THEN 0 ELSE 1 END, position, id").bind(groupId).all();
+  const alive = await env.DB.prepare(`SELECT vp.channel_id, u.id, u.username, u.avatar_color, ${AV("u")} as avatar_url
+    FROM voice_participants vp JOIN users u ON u.id = vp.user_id JOIN channels c ON c.id = vp.channel_id
+    WHERE c.group_id = ? AND vp.last_seen > unixepoch() - ${CONF_ALIVE} ORDER BY vp.joined_at, u.id`).bind(groupId).all();
+  const byChannel = /* @__PURE__ */ new Map();
+  for (const r of alive.results) {
+    const list = byChannel.get(r.channel_id) ?? [];
+    list.push({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: avatarPath("avatars", r.id, r.avatar_url), verified: isVerified(r.username), tick: hasTick(r.username) });
+    byChannel.set(r.channel_id, list);
   }
-  return json({ started, max: CONF_MAX, roster: await confRoster(env, groupId) });
+  return json({
+    max: CONF_MAX,
+    channels: rows.results.map((c) => ({ id: c.id, name: c.name, kind: c.kind, position: c.position, participants: c.kind === "voice" ? byChannel.get(c.id) ?? [] : void 0 }))
+  });
 }
-async function handleConfLeave(request, env, groupId) {
+async function groupOwnerOnly(env, groupId, userId) {
+  const g = await env.DB.prepare("SELECT owner_id FROM groups WHERE id = ?").bind(groupId).first();
+  if (!g) return err("Group not found", 404);
+  if (g.owner_id !== userId) return err("Only the group owner can change the channels", 403);
+  return null;
+}
+async function handleCreateChannel(request, env, groupId) {
   const auth = await getAuth(request, env);
   if (!auth) return err("Unauthorized", 401);
-  await env.DB.prepare("DELETE FROM conf_participants WHERE group_id = ? AND user_id = ?").bind(groupId, auth.userId).run();
+  const denied = await groupOwnerOnly(env, groupId, auth.userId);
+  if (denied) return denied;
+  const body = await request.json();
+  const name = cleanChannelName(body.name);
+  if (!name) return err("Give the channel a name (1 to 32 characters)");
+  const kind = body.kind === "voice" ? "voice" : "text";
+  await defaultTextChannel(env, groupId);
+  const count = await env.DB.prepare("SELECT COUNT(*) as total, SUM(CASE WHEN kind = 'voice' THEN 1 ELSE 0 END) as voice FROM channels WHERE group_id = ?").bind(groupId).first();
+  if (count.total >= MAX_CHANNELS) return err(`A group can have ${MAX_CHANNELS} channels at most`);
+  if (kind === "voice" && (count.voice ?? 0) >= MAX_VOICE) return err(`A group can have ${MAX_VOICE} voice channels at most`);
+  const dup = await env.DB.prepare("SELECT 1 FROM channels WHERE group_id = ? AND kind = ? AND name = ? COLLATE NOCASE").bind(groupId, kind, name).first();
+  if (dup) return err("There is already a channel with this name");
+  const pos = await env.DB.prepare("SELECT COALESCE(MAX(position), -1) + 1 as p FROM channels WHERE group_id = ? AND kind = ?").bind(groupId, kind).first();
+  const made = await env.DB.prepare("INSERT INTO channels (group_id, name, kind, position) VALUES (?, ?, ?, ?) RETURNING id, name, kind, position").bind(groupId, name, kind, pos.p).first();
+  return json(made, 201);
+}
+async function handleRenameChannel(request, env, channelId) {
+  const auth = await getAuth(request, env);
+  if (!auth) return err("Unauthorized", 401);
+  const ch = await env.DB.prepare("SELECT id, group_id, kind FROM channels WHERE id = ?").bind(channelId).first();
+  if (!ch) return err("Channel not found", 404);
+  const denied = await groupOwnerOnly(env, ch.group_id, auth.userId);
+  if (denied) return denied;
+  const name = cleanChannelName((await request.json()).name);
+  if (!name) return err("Give the channel a name (1 to 32 characters)");
+  const dup = await env.DB.prepare("SELECT 1 FROM channels WHERE group_id = ? AND kind = ? AND name = ? COLLATE NOCASE AND id != ?").bind(ch.group_id, ch.kind, name, channelId).first();
+  if (dup) return err("There is already a channel with this name");
+  await env.DB.prepare("UPDATE channels SET name = ? WHERE id = ?").bind(name, channelId).run();
+  return json({ id: channelId, name, kind: ch.kind });
+}
+async function handleDeleteChannel(request, env, channelId) {
+  const auth = await getAuth(request, env);
+  if (!auth) return err("Unauthorized", 401);
+  const ch = await env.DB.prepare("SELECT id, group_id, kind FROM channels WHERE id = ?").bind(channelId).first();
+  if (!ch) return err("Channel not found", 404);
+  const denied = await groupOwnerOnly(env, ch.group_id, auth.userId);
+  if (denied) return denied;
+  if (ch.kind === "text") {
+    const texts = await env.DB.prepare("SELECT COUNT(*) as c FROM channels WHERE group_id = ? AND kind = 'text'").bind(ch.group_id).first();
+    if (texts.c <= 1) return err("A group needs at least one text channel");
+    await env.DB.prepare("DELETE FROM group_messages WHERE channel_id = ?").bind(channelId).run();
+  } else {
+    await env.DB.prepare("DELETE FROM voice_participants WHERE channel_id = ?").bind(channelId).run();
+  }
+  await env.DB.prepare("DELETE FROM channels WHERE id = ?").bind(channelId).run();
   return json({ success: true });
 }
-async function handleConfInfo(request, env, groupId) {
+async function handleDefaultVoice(request, env, groupId) {
   const auth = await getAuth(request, env);
   if (!auth) return err("Unauthorized", 401);
   if (!await isGroupMember(env, groupId, auth.userId)) return err("Not a member of this group", 403);
-  return json({ max: CONF_MAX, roster: await confRoster(env, groupId) });
+  await defaultTextChannel(env, groupId);
+  let row = await env.DB.prepare(`SELECT c.id, c.name FROM channels c LEFT JOIN voice_participants vp ON vp.channel_id = c.id AND vp.last_seen > unixepoch() - ${CONF_ALIVE}
+    WHERE c.group_id = ? AND c.kind = 'voice' GROUP BY c.id ORDER BY COUNT(vp.user_id) DESC, c.position, c.id LIMIT 1`).bind(groupId).first();
+  if (!row) row = await env.DB.prepare("INSERT INTO channels (group_id, name, kind, position) VALUES (?, 'Voice', 'voice', 0) RETURNING id, name").bind(groupId).first();
+  return json({ id: row.id, name: row.name });
+}
+async function handleVoiceJoin(request, env, channelId) {
+  const auth = await getAuth(request, env);
+  if (!auth) return err("Unauthorized", 401);
+  const ch = await channelFor(env, channelId, auth.userId);
+  if (!ch) return err("Not a member of this group", 403);
+  if (ch.kind !== "voice") return err("This is not a voice channel");
+  const { video, ring } = await request.json().catch(() => ({}));
+  await env.DB.prepare(`DELETE FROM voice_participants WHERE channel_id = ? AND last_seen <= unixepoch() - ${CONF_ALIVE}`).bind(channelId).run();
+  const others = await env.DB.prepare("SELECT COUNT(*) as c FROM voice_participants WHERE channel_id = ? AND user_id != ?").bind(channelId, auth.userId).first();
+  const already = await env.DB.prepare("SELECT 1 FROM voice_participants WHERE channel_id = ? AND user_id = ?").bind(channelId, auth.userId).first();
+  if (!already && others.c >= CONF_MAX) return err(`This channel is full (${CONF_MAX} people).`, 409);
+  await env.DB.prepare("INSERT OR REPLACE INTO voice_participants (channel_id, user_id, joined_at, last_seen) VALUES (?, ?, unixepoch(), unixepoch())").bind(channelId, auth.userId).run();
+  let started = false;
+  if (others.c === 0 && ring) {
+    started = true;
+    const group = await env.DB.prepare("SELECT name FROM groups WHERE id = ?").bind(ch.group_id).first();
+    const members = await env.DB.prepare("SELECT user_id FROM group_members WHERE group_id = ? AND user_id != ?").bind(ch.group_id, auth.userId).all();
+    const payload = JSON.stringify({ groupName: group?.name ?? "Group", channelName: ch.name, groupId: ch.group_id, video: !!video });
+    for (const m of members.results) {
+      await env.DB.prepare("INSERT INTO call_signals (from_id, to_id, type, payload, conf) VALUES (?, ?, ?, ?, ?)").bind(auth.userId, m.user_id, "conf-invite", payload, channelId).run();
+    }
+  }
+  return json({ started, max: CONF_MAX, groupId: ch.group_id, channelName: ch.name, roster: await voiceRoster(env, channelId) });
+}
+async function handleVoiceLeave(request, env, channelId) {
+  const auth = await getAuth(request, env);
+  if (!auth) return err("Unauthorized", 401);
+  await env.DB.prepare("DELETE FROM voice_participants WHERE channel_id = ? AND user_id = ?").bind(channelId, auth.userId).run();
+  return json({ success: true });
+}
+async function handleVoiceInfo(request, env, channelId) {
+  const auth = await getAuth(request, env);
+  if (!auth) return err("Unauthorized", 401);
+  const ch = await channelFor(env, channelId, auth.userId);
+  if (!ch || ch.kind !== "voice") return err("Not found", 404);
+  return json({ max: CONF_MAX, roster: await voiceRoster(env, channelId) });
 }
 async function handleCallSignal(request, env) {
   const auth = await getAuth(request, env);
@@ -1234,7 +1368,8 @@ async function handleCallSignal(request, env) {
   if (payload !== void 0 && (typeof payload !== "string" || payload.length > 3e4)) return err("Payload too large");
   if (CONF_SIGNAL_TYPES.includes(type)) {
     if (!Number.isInteger(conf)) return err("Invalid signal");
-    if (!await isGroupMember(env, conf, auth.userId) || !await isGroupMember(env, conf, to)) return err("Not in this group", 403);
+    const mine = await channelFor(env, conf, auth.userId);
+    if (!mine || mine.kind !== "voice" || !await channelFor(env, conf, to)) return err("Not in this group", 403);
     await env.DB.prepare("INSERT INTO call_signals (from_id, to_id, type, payload, conf) VALUES (?, ?, ?, ?, ?)").bind(auth.userId, to, type, payload ?? null, conf).run();
     return json({ success: true }, 201);
   }
@@ -1260,8 +1395,8 @@ async function handleCallPoll(request, env) {
   let roster = void 0;
   const confId = parseInt(url.searchParams.get("conf") || "");
   if (Number.isInteger(confId)) {
-    const res = await env.DB.prepare(`UPDATE conf_participants SET last_seen = unixepoch() WHERE group_id = ? AND user_id = ?`).bind(confId, auth.userId).run();
-    if (res?.meta?.changes) roster = await confRoster(env, confId);
+    const res = await env.DB.prepare(`UPDATE voice_participants SET last_seen = unixepoch() WHERE channel_id = ? AND user_id = ?`).bind(confId, auth.userId).run();
+    if (res?.meta?.changes) roster = await voiceRoster(env, confId);
   }
   const rows = await env.DB.prepare(`
     SELECT s.id, s.from_id, s.type, s.payload, s.created_at, s.conf,
@@ -1338,13 +1473,21 @@ var index_default = {
       if (videoDoneMatch && request.method === "POST") return await handleVideoComplete(request, env, videoDoneMatch[1]);
       const videoGetMatch = path.match(/^\/api\/videos\/([a-f0-9]{32})$/);
       if (videoGetMatch && (request.method === "GET" || request.method === "HEAD")) return await handleGetVideo(request, env, videoGetMatch[1]);
-      const confMatch = path.match(/^\/api\/conferences\/(\d+)(?:\/(join|leave))?$/);
-      if (confMatch) {
-        const gid = parseInt(confMatch[1]);
-        if (confMatch[2] === "join" && request.method === "POST") return await handleConfJoin(request, env, gid);
-        if (confMatch[2] === "leave" && request.method === "POST") return await handleConfLeave(request, env, gid);
-        if (!confMatch[2] && request.method === "GET") return await handleConfInfo(request, env, gid);
+      const voiceMatch = path.match(/^\/api\/voice\/(\d+)(?:\/(join|leave))?$/);
+      if (voiceMatch) {
+        const cid = parseInt(voiceMatch[1]);
+        if (voiceMatch[2] === "join" && request.method === "POST") return await handleVoiceJoin(request, env, cid);
+        if (voiceMatch[2] === "leave" && request.method === "POST") return await handleVoiceLeave(request, env, cid);
+        if (!voiceMatch[2] && request.method === "GET") return await handleVoiceInfo(request, env, cid);
       }
+      const channelsMatch = path.match(/^\/api\/groups\/(\d+)\/channels$/);
+      if (channelsMatch && request.method === "GET") return await handleListChannels(request, env, parseInt(channelsMatch[1]));
+      if (channelsMatch && request.method === "POST") return await handleCreateChannel(request, env, parseInt(channelsMatch[1]));
+      const defaultVoiceMatch = path.match(/^\/api\/groups\/(\d+)\/default-voice$/);
+      if (defaultVoiceMatch && request.method === "POST") return await handleDefaultVoice(request, env, parseInt(defaultVoiceMatch[1]));
+      const channelMatch = path.match(/^\/api\/channels\/(\d+)$/);
+      if (channelMatch && request.method === "PATCH") return await handleRenameChannel(request, env, parseInt(channelMatch[1]));
+      if (channelMatch && request.method === "DELETE") return await handleDeleteChannel(request, env, parseInt(channelMatch[1]));
       if (path === "/api/calls/signal" && request.method === "POST") return await handleCallSignal(request, env);
       if (path === "/api/calls/poll" && request.method === "GET") return await handleCallPoll(request, env);
       const statusMatch = path.match(/^\/api\/messages\/(\d+)\/status$/);

@@ -202,7 +202,7 @@ export function ConferenceProvider({ children }: { children: ReactNode }) {
             const e = engine.current;
             const token = localStorage.getItem('velcord_token');
             if (e?.active && token) {
-                fetch(`/api/voice/${e.roomId}/leave`, { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: '{}' }).catch(() => {});
+                fetch(`${import.meta.env.VITE_API_URL || ''}/api/voice/${e.roomId}/leave`, { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: '{}' }).catch(() => {});
             }
         };
         window.addEventListener('beforeunload', bye);
