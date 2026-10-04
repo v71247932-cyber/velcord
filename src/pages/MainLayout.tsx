@@ -38,6 +38,9 @@ export default function MainLayout() {
     const [view, setView] = useState<View>({ type: 'friends' });
     const [groups, setGroups] = useState<Group[]>([]);
     const [profileId, setProfileId] = useState<number | null>(null); // whose profile window is open
+    // The shared screen is big only after a click on the voice channel; going anywhere else (Friends, a chat, another group) shrinks it
+    const viewKey = view.type === 'dm' ? `dm${view.friend.id}` : view.type === 'group' ? `g${view.group.id}` : 'friends';
+    useEffect(() => { conference.setExpanded(false); }, [viewKey]); // eslint-disable-line react-hooks/exhaustive-deps
     useEffect(() => {
         const open = (e: Event) => setProfileId((e as CustomEvent<number>).detail);
         window.addEventListener(PROFILE_EVENT, open);
