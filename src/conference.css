@@ -81,3 +81,10 @@
   .conf-window.has-share { left: 0; top: 0; right: 0; bottom: 0; border-radius: 0; }
   .has-share .conf-grid .conf-tile { flex-basis: 140px; }
 }
+
+.conf-size { border: none; border-radius: 8px; padding: 4px 10px; background: var(--bg-accent); color: var(--text-primary); font-size: 12px; font-weight: 600; cursor: pointer; }
+.conf-size:hover { background: var(--bg-hover); }
+.conf-window.mini { width: min(420px, calc(100vw - 32px)); }
+.conf-window.mini .conf-grid { grid-template-columns: repeat(3, 1fr); }
+.conf-window.mini .conf-share { max-height: 30vh; }
+.conf-window.mini .conf-controls .call-btn { min-width: 0; padding: 0 12px; }

@@ -129,7 +129,7 @@ export default function GroupChannels({ group, channels, activeTextId, isOwner, 
                         <div
                             className={`chan-row voice ${here ? 'joined' : ''}`}
                             onClick={() => {
-                                if (here) return;
+                                if (here) { conference.setExpanded(true); return; } // clicking the room you are in shows the shared screen big again
                                 conference.join(c.id, { groupId: group.id, groupName: group.name, channelName: c.name });
                                 onPicked?.();
                             }}

@@ -31,9 +31,12 @@ interface ConferenceValue {
     /** The group's Call / Video buttons: pick the group's voice channel and ring the others when this starts a call */
     startGroupCall: (group: { id: number; name: string }, video?: boolean) => Promise<void>;
     leave: () => void;
+    /** the shared screen fills the window (true) or is shrunk to a corner so the chat can be read (false) */
+    expanded: boolean;
+    setExpanded: (v: boolean) => void;
 }
 
-const Ctx = createContext<ConferenceValue>({ activeGroupId: null, activeRoomId: null, join: async () => {}, startGroupCall: async () => {}, leave: () => {} });
+const Ctx = createContext<ConferenceValue>({ activeGroupId: null, activeRoomId: null, join: async () => {}, startGroupCall: async () => {}, leave: () => {}, expanded: true, setExpanded: () => {} });
 export const useConference = () => useContext(Ctx);
 
 /** Shows a MediaStream in a <video>; sound comes from separate audio elements, so videos stay muted. */
@@ -76,6 +79,7 @@ export function ConferenceProvider({ children }: { children: ReactNode }) {
     const [incoming, setIncoming] = useState<Incoming | null>(null);
     const [notice, setNotice] = useState<string | null>(null);
     const [seconds, setSeconds] = useState(0);
+    const [expanded, setExpanded] = useState(true);
     const engine = useRef<ConfEngine | null>(null);
     const lastId = useRef<number | null>(null);
     const queue = useRef<Promise<void>>(Promise.resolve());
@@ -94,6 +98,7 @@ export function ConferenceProvider({ children }: { children: ReactNode }) {
         if (!user || engine.current?.active) return;
         if (callBusy.oneToOne) { setNotice('Hang up your call first.'); return; }
         setIncoming(null);
+        setExpanded(true);
         const e = new ConfEngine(user);
         e.onChange = refresh;
         e.onNotice = setNotice;
@@ -217,7 +222,7 @@ export function ConferenceProvider({ children }: { children: ReactNode }) {
     const tiles = view ? view.peers.length + 1 : 0;
 
     return (
-        <Ctx.Provider value={{ activeGroupId: view ? view.groupId : null, activeRoomId: view ? view.roomId : null, join, startGroupCall, leave }}>
+        <Ctx.Provider value={{ activeGroupId: view ? view.groupId : null, activeRoomId: view ? view.roomId : null, join, startGroupCall, leave, expanded, setExpanded }}>
             {children}
 
             {notice && <div className="call-toast" onClick={() => setNotice(null)}>{notice}</div>}
@@ -235,10 +240,11 @@ export function ConferenceProvider({ children }: { children: ReactNode }) {
             )}
 
             {view && e && (
-                <div className={`conf-window ${sharer ? 'has-share' : ''}`}>
+                <div className={`conf-window ${sharer && expanded ? 'has-share' : ''} ${sharer && !expanded ? 'mini' : ''}`}>
                     <div className="conf-head">
                         <span className="conf-title">{view.groupName}</span>
                         <span className="conf-meta">{tiles} in the call · {mm}:{ss}</span>
+                        {sharer && <button type="button" className="conf-size" onClick={() => setExpanded(!expanded)} title={expanded ? 'Make it smaller to read the chat' : 'Show the shared screen big'}>{expanded ? 'Smaller' : 'Bigger'}</button>}
                     </div>
 
                     <div className="conf-stage">

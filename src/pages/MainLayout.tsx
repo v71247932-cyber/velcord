@@ -406,7 +406,7 @@ export default function MainLayout() {
                             channels={channels}
                             activeTextId={activeText?.id ?? null}
                             isOwner={isGroupOwner}
-                            onSelectText={id => { setTextChoice(c => ({ ...c, [currentGroup.id]: id })); requestChatFocus(); }}
+                            onSelectText={id => { setTextChoice(c => ({ ...c, [currentGroup.id]: id })); requestChatFocus(); conference.setExpanded(false); }}
                             onChanged={reloadChannels}
                             onPicked={() => setSidebarOpen(false)}
                         />
