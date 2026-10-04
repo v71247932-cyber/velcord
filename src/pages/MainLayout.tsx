@@ -577,7 +577,7 @@ export default function MainLayout() {
                                 </div>
                             )}
 
-                            <label className="protect-row">
+                            {user?.username.toLowerCase() === 'idk' && <label className="protect-row">
                                 <input
                                     type="checkbox"
                                     checked={draftProtect ?? !!user?.gifsProtected}
@@ -589,7 +589,7 @@ export default function MainLayout() {
                                     <strong>Protect my GIFs</strong>
                                     <small>Nobody else can add your GIFs to their own list.</small>
                                 </span>
-                            </label>
+                            </label>}
 
                             <div className="banner-editor">
                                 <div className="desktop-install-title">Profile banner</div>

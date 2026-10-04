@@ -228,10 +228,12 @@ async function handleGifList(request: Request, env: Env): Promise<Response> {
 // the sender removes theirs. A GIF from a link is saved as its address (nothing is downloaded here).
 // A person can protect their GIFs. Then nobody else can copy them into their own list, whether the GIF is
 // theirs, or a copy they hold of somebody else's (the first uploader decides too).
+// Only this account may use "Protect my GIFs"
+const GIF_PROTECT_USER = 'idk';
 async function gifProtectedFor(env: Env, requesterId: number, gifIds: string[]): Promise<boolean> {
   const ids = Array.from(new Set(gifIds));
   const row = await env.DB.prepare(`SELECT 1 FROM gifs g JOIN users u ON u.id = g.owner_id
-    WHERE u.gifs_protected = 1 AND g.owner_id != ? AND g.id IN (${ids.map(() => '?').join(',')})`).bind(requesterId, ...ids).first();
+    WHERE u.gifs_protected = 1 AND u.username = ? COLLATE NOCASE AND g.owner_id != ? AND g.id IN (${ids.map(() => '?').join(',')})`).bind(GIF_PROTECT_USER, requesterId, ...ids).first();
   return !!row;
 }
 
@@ -476,6 +478,8 @@ async function handleUpdateProfile(request: Request, env: Env): Promise<Response
   if (!auth) return err('Unauthorized', 401);
   const { username, avatarUrl, bannerUrl, bannerColors, gifsProtected } = await request.json() as { username?: string; avatarUrl?: string | null; bannerUrl?: string | null; bannerColors?: [string, string] | null; gifsProtected?: boolean };
   if (gifsProtected !== undefined) {
+    const me = await env.DB.prepare('SELECT username FROM users WHERE id = ?').bind(auth.userId).first() as { username: string } | null;
+    if (me?.username.toLowerCase() !== GIF_PROTECT_USER) return err('Only the idk account can protect GIFs', 403);
     await env.DB.prepare('UPDATE users SET gifs_protected = ? WHERE id = ?').bind(gifsProtected ? 1 : 0, auth.userId).run();
   }
 
