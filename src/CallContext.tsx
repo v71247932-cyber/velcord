@@ -629,8 +629,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }, [trackVersion, remoteSharing, remoteCam, localCam, phase]);
 
     const videoMode = localCam || remoteCam;
-    // The camera button belongs to video calls: started as one, answered as one, or once a camera was on
-    const isVideoCall = startedVideo || incomingVideo || sawCam || videoMode;
+    // The camera button is always there, so a voice call can turn into a video call
     useEffect(() => { if (localCam || remoteCam) setSawCam(true); }, [localCam, remoteCam]);
     const mm = String(Math.floor(seconds / 60)).padStart(2, '0');
     const ss = String(seconds % 60).padStart(2, '0');
@@ -715,7 +714,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                         >
                             {muted || deafened || !hasMic ? <MicOffIcon size={20} /> : <MicIcon size={20} />}
                         </button>
-                        {isVideoCall && (
+                        {(
                             <button
                                 className={`call-icon-btn ${localCam ? '' : 'is-off'}`}
                                 onClick={toggleCamera}

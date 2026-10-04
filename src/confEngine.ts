@@ -216,7 +216,7 @@ export class ConfEngine {
         let stream: MediaStream | null = null;
         try {
             stream = await navigator.mediaDevices.getDisplayMedia({
-                video: { width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 }, frameRate: { ideal: 30, max: 30 } },
+                video: { width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 }, frameRate: { ideal: 60, max: 60 } },
                 audio: false,
             });
         } catch (e: any) {
@@ -224,7 +224,7 @@ export class ConfEngine {
             return;
         }
         const track = stream.getVideoTracks()[0];
-        try { track.contentHint = 'detail'; } catch { /* unsupported */ }
+        try { track.contentHint = 'motion'; } catch { /* unsupported */ } // keep the frame rate high
         track.onended = () => this.stopShare();
         this.screen = stream;
         api.confShare(this.roomId, true).catch(() => {});
@@ -255,14 +255,41 @@ export class ConfEngine {
         }
     }
 
+    /** 1080p60 needs about 8 Mbit/s per viewer; with many viewers the upload is shared between them (never below 2.5) */
+    private screenBitrate() {
+        return Math.round(Math.min(8_000_000, Math.max(2_500_000, 24_000_000 / Math.max(1, this.peers.size))));
+    }
+
+    /** Encoding settings only exist after the first negotiation, so retry until they appear. */
+    private tuneScreenSender(p: Peer, sender: RTCRtpSender) {
+        let tries = 0;
+        const attempt = async () => {
+            if (this.peers.get(p.id) !== p || p.screenSender !== sender) return;
+            try {
+                const params = sender.getParameters();
+                if (params.encodings && params.encodings.length > 0) {
+                    params.encodings[0].maxBitrate = this.screenBitrate();
+                    params.encodings[0].maxFramerate = 60;
+                    params.encodings[0].scaleResolutionDownBy = 1;
+                    (params as any).degradationPreference = 'maintain-framerate';
+                    await sender.setParameters(params);
+                    return;
+                }
+            } catch { /* retry */ }
+            if (++tries < 20) setTimeout(attempt, 250);
+        };
+        attempt();
+    }
+
     private publishScreen(p: Peer) {
         const track = this.screen?.getVideoTracks()[0];
         if (!track) return;
         if (p.screenSender) {
             p.screenSender.replaceTrack(track).then(() => this.signal(p.id, 'conf-share', { on: true, id: this.screenCarrier.id })).catch(() => {});
         } else {
-            const tr = p.pc.addTransceiver(track, { direction: 'sendonly', streams: [this.screenCarrier], sendEncodings: [{ maxBitrate: 2_000_000, maxFramerate: 30 }] });
+            const tr = p.pc.addTransceiver(track, { direction: 'sendonly', streams: [this.screenCarrier], sendEncodings: [{ maxBitrate: this.screenBitrate(), maxFramerate: 60, scaleResolutionDownBy: 1 }] });
             p.screenSender = tr.sender;
+            this.tuneScreenSender(p, tr.sender);
             setTimeout(() => { if (this.screen && this.peers.get(p.id) === p) this.signal(p.id, 'conf-share', { on: true, id: this.screenCarrier.id }); }, 700);
         }
     }

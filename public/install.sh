@@ -194,7 +194,7 @@ if [ "$PLATFORM" = "darwin" ]; then
   [ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$APP" >/dev/null 2>&1 || true
   ok "installed"
 
-  step "Opening Velcord (macOS will now ask for notifications, microphone and screen recording)"
+  step "Opening Velcord (macOS will ask for notifications; the microphone, camera and screen are asked for only when you use them in a call)"
   if ! open "$APP" 2>/dev/null; then
     warn "macOS would not open the app the normal way, starting it directly."
     nohup "$APP/Contents/MacOS/Electron" >/dev/null 2>&1 &

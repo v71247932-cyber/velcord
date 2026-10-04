@@ -115,7 +115,20 @@ function setupSession() {
 
     ses.setPermissionRequestHandler((wc, permission, callback, details) => {
         const origin = originOf(details && details.requestingUrl ? details.requestingUrl : wc.getURL());
-        callback(isOurs(origin) && ALLOWED.has(permission));
+        if (!(isOurs(origin) && ALLOWED.has(permission))) { callback(false); return; }
+        if (!IS_MAC || permission !== 'media') { callback(true); return; }
+        // The microphone and the camera are asked for only now, when a call really uses them
+        (async () => {
+            const types = (details && details.mediaTypes) || [];
+            let ok = true;
+            for (const [type, device] of [['audio', 'microphone'], ['video', 'camera']]) {
+                if (!types.includes(type)) continue;
+                try {
+                    if (systemPreferences.getMediaAccessStatus(device) !== 'granted') ok = (await systemPreferences.askForMediaAccess(device)) && ok;
+                } catch (e) { log('media access failed', device, e); }
+            }
+            callback(ok);
+        })();
     });
     ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => (
         isOurs(originOf(requestingOrigin)) && ALLOWED.has(permission)
@@ -154,14 +167,15 @@ function writeState(patch) {
 async function explainScreenPermission() {
     const { response } = await dialog.showMessageBox(win || undefined, {
         type: 'info',
-        buttons: ['Open System Settings', 'Not now'],
+        buttons: ['Open System Settings', 'Restart Velcord', 'Not now'],
         defaultId: 0,
-        cancelId: 1,
+        cancelId: 2,
         title: 'Screen sharing needs permission',
         message: 'Allow Velcord to record your screen',
-        detail: 'Open System Settings > Privacy & Security > Screen & System Audio Recording, turn Velcord on, then quit Velcord completely (Cmd+Q) and open it again.',
+        detail: '1. Press "Open System Settings" and turn Velcord on in Screen & System Audio Recording.\n2. Come back and press "Restart Velcord" (macOS needs a restart of the app once). Then share again.',
     });
     if (response === 0) shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+    if (response === 1) { app.relaunch(); app.exit(0); }
 }
 
 // Asks for everything once, right after install, so nothing interrupts the first call.
@@ -170,7 +184,9 @@ async function askForPermissions({ force = false } = {}) {
 
     const result = { microphone: 'unknown', screen: 'unknown', notifications: 'unknown' };
 
-    if (IS_MAC) {
+    // Only the explicit "Check permissions" asks for the microphone and the screen up front.
+    // On the first start just the notifications are asked for; the rest comes when a call needs it.
+    if (IS_MAC && force) {
         try {
             const ok = await systemPreferences.askForMediaAccess('microphone');
             result.microphone = ok ? 'granted' : 'denied';
@@ -199,7 +215,7 @@ async function askForPermissions({ force = false } = {}) {
 
     writeState({ permissionsAsked: true });
 
-    if (IS_MAC && result.screen !== 'granted') {
+    if (IS_MAC && force && result.screen !== 'granted') {
         // The screen prompt can only be answered in System Settings the first time
         await explainScreenPermission();
     }
