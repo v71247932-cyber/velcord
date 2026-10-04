@@ -20,6 +20,7 @@ import UserProfileModal from '../components/UserProfileModal';
 import { PROFILE_EVENT } from '../components/Avatar';
 import ProfileCard from '../components/ProfileCard';
 import { useConference } from '../ConferenceContext';
+import '../switch.css';
 import GroupMembersPanel from '../components/GroupMembersPanel';
 import CreateGroupModal from '../components/CreateGroupModal';
 
@@ -63,6 +64,20 @@ export default function MainLayout() {
     useEffect(() => {
         if (!showProfileMenu) { setDraftAvatar(undefined); setDraftProtect(undefined); setEditUsername(user?.username || ''); }
     }, [showProfileMenu]); // eslint-disable-line react-hooks/exhaustive-deps
+    const [switching, setSwitching] = useState(false);
+    // Moves to the linked account (for testing). A fresh page start makes sure nothing of the old account is left behind.
+    async function switchAccount() {
+        if (switching) return;
+        setSwitching(true);
+        try {
+            const r = await api.switchAccount();
+            localStorage.setItem('velcord_token', r.token);
+            window.location.reload();
+        } catch (e: any) {
+            setSwitching(false);
+            alert(e.message || 'Could not switch the account');
+        }
+    }
     const [showInfo, setShowInfo] = useState(false); // phone: profile / members panel
 
     // Notify about new direct messages (and show the unread total on the dock/taskbar icon)
@@ -376,7 +391,7 @@ export default function MainLayout() {
                             {(f.bannerUrl || (f.bannerColor1 && f.bannerColor2)) && <div className="dm-item-bg" style={bannerStyle(f)} />}
                             <Avatar name={f.username} color={f.avatarColor} src={f.avatarUrl} size="sm" status={f.online ? 'online' : 'offline'} />
                             <div className="sidebar-user-details">
-                                <span className="dm-name">{f.username}{f.verified && <VerifiedBadge size={14} />}</span>
+                                <span className="dm-name">{f.username}{(f.verified || f.tick) && <VerifiedBadge size={14} />}</span>
                                 {(f.unread || 0) > 0 && currentFriend?.id !== f.id && (
                                     <span className="unread-badge">{(f.unread || 0) > 99 ? '99+' : f.unread}</span>
                                 )}
@@ -421,6 +436,13 @@ export default function MainLayout() {
                             {deafened && <path d="M3 3l18 18" />}
                         </svg>
                     </button>
+                    {user?.canSwitch && (
+                        <button className="user-bar-btn" onClick={switchAccount} disabled={switching} title="Switch account" aria-label="Switch account">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M4 8h13l-3-3M20 16H7l3 3" />
+                            </svg>
+                        </button>
+                    )}
                     <button className="user-bar-btn user-bar-leave" onClick={logout} title="Leave">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
@@ -448,7 +470,7 @@ export default function MainLayout() {
                             <div className="chat-main">
                                 <div className="content-header">
                                     <Avatar name={live.username} color={live.avatarColor} src={live.avatarUrl} size="sm" zoomable userId={live.id} status={live.online ? 'online' : 'offline'} />
-                                    <span className="header-name">{live.username}{live.verified && <VerifiedBadge size={16} />}</span>
+                                    <span className="header-name">{live.username}{(live.verified || live.tick) && <VerifiedBadge size={16} />}</span>
                                     {isFriend && !live.verified && (
                                         <button
                                             className="header-call-btn"

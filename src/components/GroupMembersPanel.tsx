@@ -60,7 +60,7 @@ export default function GroupMembersPanel({ group, friends, onGroupChanged }: Pr
     const row = (m: GroupMember) => (
         <div key={m.id} className={`member-row ${m.online ? '' : 'member-offline'}`}>
             <Avatar name={m.username} color={m.avatarColor} src={m.avatarUrl} size="sm" zoomable userId={m.id} status={m.online ? 'online' : 'offline'} />
-            <span className="member-name">{m.username}{m.verified && <VerifiedBadge size={14} />}</span>
+            <span className="member-name">{m.username}{(m.verified || m.tick) && <VerifiedBadge size={14} />}</span>
             {m.isOwner && <span className="member-owner" title="Group owner"><CrownIcon size={13} /> Owner</span>}
         </div>
     );

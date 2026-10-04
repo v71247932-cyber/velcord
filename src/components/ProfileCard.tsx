@@ -22,7 +22,7 @@ export default function ProfileCard({ friend, onCall, onVideoCall, callDisabled 
                     <Avatar name={friend.username} color={friend.avatarColor} src={friend.avatarUrl} size="xl" zoomable userId={friend.id} status={online ? 'online' : 'offline'} />
                 </div>
                 <div className="profile-card-body">
-                    <div className="profile-card-name">{friend.username}{friend.verified && <VerifiedBadge size={18} />}</div>
+                    <div className="profile-card-name">{friend.username}{(friend.verified || friend.tick) && <VerifiedBadge size={18} />}</div>
                     <div className={`profile-card-status ${online ? 'is-online' : ''}`}>
                         <span className={`status-dot-inline status-${online ? 'online' : 'offline'}`} />
                         {online ? 'Online' : 'Offline'}

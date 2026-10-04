@@ -134,7 +134,7 @@ export default function ChatPanel({ friend }: ChatPanelProps) {
                     <div className="msg-content-col">
                         <div className="msg-header">
                             <span className="msg-author" style={{ color: isMe ? '#fff' : msg.sender.avatarColor }}>
-                                {msg.sender.username}{msg.sender.verified && <VerifiedBadge size={14} />}
+                                {msg.sender.username}{(msg.sender.verified || msg.sender.tick) && <VerifiedBadge size={14} />}
                             </span>
                             <span className="msg-time">{formatTime(msg.createdAt)}</span>
                             {isMe && <Ticks msg={msg} />}

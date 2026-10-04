@@ -106,7 +106,10 @@ async function purgeOldMessages(env: Env) {
 const SYSTEM_NAME = 'Velcord';
 const SYSTEM_RECIPIENTS = ['idk123idk123dasa', 'deram8686']; // only these accounts get Velcord in their friend list
 const isVerified = (username: string | null | undefined) => !!username && username.toLowerCase() === SYSTEM_NAME.toLowerCase();
-const isReservedName = (username: string) => /velcord/i.test(username);
+const isReservedName = (username: string) => /velcord/i.test(username) || username.trim().toLowerCase() === 'test';
+// The blue check also marks the test account. Unlike Velcord it is an ordinary account: it can write, call and be called.
+const TICK_NAMES = ['test'];
+const hasTick = (username: string | null | undefined) => isVerified(username) || (!!username && TICK_NAMES.includes(username.toLowerCase()));
 
 async function ensureSystemUser(env: Env): Promise<number> {
   const row = await env.DB.prepare('SELECT id FROM users WHERE username = ?').bind(SYSTEM_NAME).first() as { id: number } | null;
@@ -364,6 +367,47 @@ async function handleSystemGifProtect(request: Request, env: Env): Promise<Respo
   return json({ user: u.username, protected: !!state.gifs_protected, ownGifs: own.c, copiesInOthersLists: copies.c });
 }
 
+// --- Switching between two linked accounts (for testing) ---
+// Only accounts joined by the app owner (with the secret key) can switch, and only to each other.
+async function linkedAccount(env: Env, userId: number): Promise<{ id: number; username: string } | null> {
+  return await env.DB.prepare('SELECT u.id, u.username FROM account_links l JOIN users u ON u.id = l.linked_id WHERE l.user_id = ? LIMIT 1')
+    .bind(userId).first() as { id: number; username: string } | null;
+}
+
+async function handleSwitchAccount(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const other = await linkedAccount(env, auth.userId);
+  if (!other) return err('This account has nothing to switch to', 403);
+  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV('users')} as avatar_url, ${BANNER_COLS('users')}, gifs_protected FROM users WHERE id = ?`)
+    .bind(other.id).first() as any;
+  if (!user) return err('Account not found', 404);
+  const token = await signJWT({ userId: user.id, username: user.username }, env.JWT_SECRET);
+  return json({ token, user: { id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user), gifsProtected: !!user.gifs_protected, tick: hasTick(user.username), canSwitch: true } });
+}
+
+// Makes (or finds) the "test" account, friends it with the owner and links the two so they can switch (needs the secret key)
+async function handleSystemTestAccount(request: Request, env: Env): Promise<Response> {
+  const key = request.headers.get('X-System-Key');
+  if (!env.SYSTEM_KEY || !key || key !== env.SYSTEM_KEY) return err('Not found', 404);
+  const { owner } = await request.json() as { owner?: string };
+  const o = owner ? await env.DB.prepare('SELECT id, username FROM users WHERE username = ?').bind(owner).first() as { id: number; username: string } | null : null;
+  if (!o) return err('No such user', 404);
+  let t = await env.DB.prepare("SELECT id, username FROM users WHERE username = 'test'").first() as { id: number; username: string } | null;
+  if (!t) {
+    // Nobody can log in with a password: the account is reached only through the switch button
+    const hex = (n: number) => Array.from(crypto.getRandomValues(new Uint8Array(n))).map(b => b.toString(16).padStart(2, '0')).join('');
+    t = await env.DB.prepare("INSERT INTO users (username, password_hash, avatar_color) VALUES ('test', ?, '#23a55a') RETURNING id, username").bind(`${hex(16)}:${hex(32)}`).first() as { id: number; username: string };
+  }
+  const pair = '(requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)';
+  const fr = await env.DB.prepare(`SELECT id, status FROM friendships WHERE ${pair}`).bind(o.id, t.id, t.id, o.id).first() as { id: number; status: string } | null;
+  if (!fr) await env.DB.prepare("INSERT INTO friendships (requester_id, addressee_id, status) VALUES (?, ?, 'accepted')").bind(o.id, t.id).run();
+  else if (fr.status !== 'accepted') await env.DB.prepare("UPDATE friendships SET status = 'accepted' WHERE id = ?").bind(fr.id).run();
+  await env.DB.prepare('DELETE FROM account_links WHERE user_id IN (?, ?) OR linked_id IN (?, ?)').bind(o.id, t.id, o.id, t.id).run();
+  await env.DB.prepare('INSERT INTO account_links (user_id, linked_id) VALUES (?, ?), (?, ?)').bind(o.id, t.id, t.id, o.id).run();
+  return json({ owner: o.username, test: t.username, friends: true, linked: true });
+}
+
 // --- Avatars ---
 // Pictures are stored as data URLs. API responses never carry them: queries return a short
 // version token and the client loads /api/avatars/<id>?v=<token>, which the browser caches.
@@ -461,7 +505,7 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
   if (!ok) return err('Invalid username or password', 401);
 
   const token = await signJWT({ userId: user.id, username: user.username }, env.JWT_SECRET);
-  return json({ token, user: { id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user), gifsProtected: !!user.gifs_protected } });
+  return json({ token, user: { id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user), gifsProtected: !!user.gifs_protected, tick: hasTick(user.username), canSwitch: !!(await linkedAccount(env, user.id)) } });
 }
 
 async function handleMe(request: Request, env: Env): Promise<Response> {
@@ -470,7 +514,7 @@ async function handleMe(request: Request, env: Env): Promise<Response> {
   const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV('users')} as avatar_url, ${BANNER_COLS('users')}, gifs_protected FROM users WHERE id = ?`)
     .bind(auth.userId).first() as { id: number; username: string; avatar_color: string; avatar_url: string | null; gifs_protected?: number } | null;
   if (!user) return err('User not found', 404);
-  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user), gifsProtected: !!user.gifs_protected });
+  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user), gifsProtected: !!user.gifs_protected, tick: hasTick(user.username), canSwitch: !!(await linkedAccount(env, user.id)) });
 }
 
 async function handleUpdateProfile(request: Request, env: Env): Promise<Response> {
@@ -487,6 +531,8 @@ async function handleUpdateProfile(request: Request, env: Env): Promise<Response
     if (username.length < 2 || username.length > 32) return err('Username must be 2-32 characters');
     if (!/^[a-zA-Z0-9._-]+$/.test(username)) return err('Username can only contain letters, numbers, dots, underscores, hyphens');
     if (isReservedName(username)) return err('This name is reserved');
+    const current = await env.DB.prepare('SELECT username FROM users WHERE id = ?').bind(auth.userId).first() as { username: string } | null;
+    if (hasTick(current?.username)) return err('This account cannot be renamed');
     const existing = await env.DB.prepare('SELECT id FROM users WHERE username = ? AND id != ?').bind(username, auth.userId).first();
     if (existing) return err('Username already taken');
     await env.DB.prepare('UPDATE users SET username = ? WHERE id = ?').bind(username, auth.userId).run();
@@ -521,7 +567,7 @@ async function handleUpdateProfile(request: Request, env: Env): Promise<Response
     .bind(auth.userId).first() as any;
 
   if (!user) return err('User not found', 404);
-  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user), gifsProtected: !!user.gifs_protected });
+  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user), gifsProtected: !!user.gifs_protected, tick: hasTick(user.username), canSwitch: !!(await linkedAccount(env, user.id)) });
 }
 
 function previewOf(content: string | null): string | null {
@@ -573,7 +619,7 @@ async function handleGetFriends(request: Request, env: Env): Promise<Response> {
     id: r.id, username: r.username, avatarColor: r.avatar_color,
     avatarUrl: avatarPath('avatars', r.id, r.avatar_url),
     ...bannerFields(r),
-    verified: isVerified(r.username),
+    verified: isVerified(r.username), tick: hasTick(r.username),
     online: isVerified(r.username) || isOnline(r.last_seen), friendshipId: r.friendship_id,
   });
   return json({
@@ -725,7 +771,7 @@ async function handleGetMessages(request: Request, env: Env, otherUserId: number
     createdAt: m.created_at,
     deliveredAt: m.delivered_at,
     readAt: m.read_at,
-    sender: { id: m.sender_id, username: m.sender_username, verified: isVerified(m.sender_username), avatarColor: m.sender_avatar_color, avatarUrl: avatarPath('avatars', m.sender_id, m.sender_avatar_url) },
+    sender: { id: m.sender_id, username: m.sender_username, verified: isVerified(m.sender_username), tick: hasTick(m.sender_username), avatarColor: m.sender_avatar_color, avatarUrl: avatarPath('avatars', m.sender_id, m.sender_avatar_url) },
   })));
 }
 
@@ -842,7 +888,7 @@ async function handleGroupMembers(request: Request, env: Env, groupId: number): 
     avatarUrl: avatarPath('avatars', r.id, r.avatar_url),
     online: r.id === auth.userId || isVerified(r.username) || isOnline(r.last_seen),
     isOwner: r.id === r.owner_id,
-    verified: isVerified(r.username),
+    verified: isVerified(r.username), tick: hasTick(r.username),
   })));
 }
 
@@ -952,7 +998,7 @@ async function handleGetGroupMessages(request: Request, env: Env, groupId: numbe
     id: m.id,
     content: m.content,
     createdAt: m.created_at,
-    sender: { id: m.sender_id, username: m.sender_username, verified: isVerified(m.sender_username), avatarColor: m.sender_avatar_color, avatarUrl: avatarPath('avatars', m.sender_id, m.sender_avatar_url) },
+    sender: { id: m.sender_id, username: m.sender_username, verified: isVerified(m.sender_username), tick: hasTick(m.sender_username), avatarColor: m.sender_avatar_color, avatarUrl: avatarPath('avatars', m.sender_id, m.sender_avatar_url) },
   })));
 }
 
@@ -1052,6 +1098,11 @@ function ensureSchema(env: Env): Promise<void> {
           created_at INTEGER NOT NULL DEFAULT (unixepoch())
         )`),
         env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_call_signals_to ON call_signals(to_id, id)'),
+        env.DB.prepare(`CREATE TABLE IF NOT EXISTS account_links (
+          user_id INTEGER NOT NULL,
+          linked_id INTEGER NOT NULL,
+          PRIMARY KEY (user_id, linked_id)
+        )`),
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS conf_participants (
           group_id INTEGER NOT NULL,
           user_id INTEGER NOT NULL,
@@ -1359,7 +1410,7 @@ async function confRoster(env: Env, groupId: number) {
     WHERE cp.group_id = ? AND cp.last_seen > unixepoch() - ${CONF_ALIVE}
     ORDER BY cp.joined_at, u.id
   `).bind(groupId).all();
-  return rows.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: avatarPath('avatars', r.id, r.avatar_url), verified: isVerified(r.username) }));
+  return rows.results.map((r: any) => ({ id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: avatarPath('avatars', r.id, r.avatar_url), verified: isVerified(r.username), tick: hasTick(r.username) }));
 }
 
 async function handleConfJoin(request: Request, env: Env, groupId: number): Promise<Response> {
@@ -1505,6 +1556,8 @@ export default {
       if (path === '/api/system/status' && request.method === 'POST') return handleSystemStatus(request, env);
       if (path === '/api/system/videos' && request.method === 'POST') return handleSystemVideos(request, env);
       if (path === '/api/system/gif-protect' && request.method === 'POST') return handleSystemGifProtect(request, env);
+      if (path === '/api/system/test-account' && request.method === 'POST') return handleSystemTestAccount(request, env);
+      if (path === '/api/switch-account' && request.method === 'POST') return handleSwitchAccount(request, env);
 
       // GIF behind a Tenor link
       if (path === '/api/gif-link' && request.method === 'GET') {

@@ -120,6 +120,8 @@ export const api = {
 
     gifOrigins: (ids: string[]) => request<Record<string, any>>('POST', '/api/gifs/origins', { ids }), // id -> origin; "__protected" lists the ids that cannot be copied
 
+    switchAccount: () => request<{ token: string; user: User }>('POST', '/api/switch-account', {}),
+
     removeGif: (id: string) => request<{ success: boolean }>('DELETE', `/api/gifs/${id}`),
 
     callSignal: (to: number, type: string, payload?: unknown, conf?: number) =>
@@ -150,6 +152,10 @@ export interface User {
     avatarColor: string;
     /** nobody else can copy this person's GIFs into their own list */
     gifsProtected?: boolean;
+    /** blue check next to the name (Velcord and the test account) */
+    tick?: boolean;
+    /** this account is linked to another one and can switch to it */
+    canSwitch?: boolean;
     avatarUrl?: string;
     bannerUrl?: string | null;
     bannerColor1?: string | null;
@@ -166,6 +172,7 @@ export interface FriendUser {
     bannerColor1?: string | null;
     bannerColor2?: string | null;
     verified?: boolean;
+    tick?: boolean;
     online?: boolean;
     unread?: number;
     lastUnreadId?: number;
@@ -206,6 +213,7 @@ export interface GroupMember {
     online: boolean;
     isOwner: boolean;
     verified?: boolean;
+    tick?: boolean;
 }
 
 export interface Message {
@@ -225,6 +233,7 @@ export interface ConfPerson {
     avatarColor: string;
     avatarUrl?: string | null;
     verified?: boolean;
+    tick?: boolean;
 }
 
 export interface CallSignal {

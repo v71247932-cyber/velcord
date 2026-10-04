@@ -1,0 +1,3 @@
+/* With the extra "switch account" button the bottom bar has four buttons: make them a little narrower so the name keeps its room */
+.user-bar:has(.user-bar-btn[aria-label="Switch account"]) .user-bar-btn { width: 28px; height: 30px; }
+.user-bar:has(.user-bar-btn[aria-label="Switch account"]) .user-bar-btn svg { width: 18px; height: 18px; }
