@@ -1,4 +1,3 @@
-import { MessageIcon } from '../components/Icons';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
@@ -31,7 +30,7 @@ export default function Login() {
         <div className="auth-page">
             <div className="auth-card">
                 <div className="auth-logo">
-                    <div className="logo-icon"><MessageIcon size={34} /></div>
+                    <img className="logo-img" src="/logo.svg" width="76" height="76" alt="Velcord" />
                     <h1>Welcome back!</h1>
                     <p className="subtitle">Velcord is happy to see you again.</p>
                 </div>

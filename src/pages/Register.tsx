@@ -32,7 +32,7 @@ export default function Register() {
         <div className="auth-page">
             <div className="auth-card">
                 <div className="auth-logo">
-                    <div className="logo-icon">✨</div>
+                    <img className="logo-img" src="/logo.svg" width="76" height="76" alt="Velcord" />
                     <h1>Create an account</h1>
                     <p className="subtitle">Join Velcord — your personal chat space.</p>
                 </div>
