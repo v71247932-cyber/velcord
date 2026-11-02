@@ -357,6 +357,34 @@ async function handleSystemResetPassword(request, env) {
   await env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?").bind(await hashPassword(pw), u.id).run();
   return json({ username: u.username, password: pw });
 }
+async function handleWebhook(request, env, token) {
+  const hook = await env.DB.prepare("SELECT group_id FROM webhooks WHERE token = ?").bind(token).first();
+  if (!hook) {
+    console.log("hook: unknown token");
+    return err("Not found", 404);
+  }
+  console.log(`hook: message for group ${hook.group_id} from ${request.headers.get("Origin") || "no origin"}`);
+  const body = await request.json().catch(() => null);
+  if (!body) return err("Bad request");
+  const parts = [];
+  if (body.content) parts.push(String(body.content));
+  for (const e of body.embeds || []) {
+    if (e.title) parts.push(String(e.title));
+    if (e.description) parts.push(String(e.description));
+    for (const f of e.fields || []) parts.push(`${f.name}: ${f.value}`);
+  }
+  const text = parts.join("\n").replace(/\*\*/g, "").trim().slice(0, 2e3);
+  if (!text) return err("Empty message");
+  const recent = await env.DB.prepare("SELECT COUNT(*) AS n FROM group_messages WHERE group_id = ? AND sender_id = ? AND created_at > unixepoch() - 60").bind(hook.group_id, await ensureSystemUser(env)).first();
+  if (recent.n >= 30) return err("Too many messages", 429);
+  const sys = await ensureSystemUser(env);
+  const channelId = await defaultTextChannel(env, hook.group_id);
+  const msg = await env.DB.prepare("INSERT INTO group_messages (group_id, sender_id, content, channel_id) VALUES (?, ?, ?, ?) RETURNING id").bind(hook.group_id, sys, text, channelId).first();
+  const gname = await env.DB.prepare("SELECT name FROM groups WHERE id = ?").bind(hook.group_id).first();
+  const members = await env.DB.prepare("SELECT user_id FROM group_members WHERE group_id = ?").bind(hook.group_id).all();
+  await pushTo(env, members.results.map((r) => r.user_id), { title: gname?.name || "Group", body: pushPreview(text.replace(/\n+/g, " ")), tag: `grp-${hook.group_id}`, url: "/app" });
+  return json({ ok: true, id: msg.id }, 200);
+}
 async function handleSystemVideos(request, env) {
   const key = request.headers.get("X-System-Key");
   if (!env.SYSTEM_KEY || !key || key !== env.SYSTEM_KEY) return err("Not found", 404);
@@ -1162,6 +1190,12 @@ function ensureSchema(env) {
           created_at INTEGER NOT NULL DEFAULT (unixepoch())
         )`),
         env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_push_user ON push_subs(user_id)"),
+        env.DB.prepare(`CREATE TABLE IF NOT EXISTS webhooks (
+          token TEXT PRIMARY KEY,
+          group_id INTEGER NOT NULL,
+          label TEXT NOT NULL DEFAULT '',
+          created_at INTEGER NOT NULL DEFAULT (unixepoch())
+        )`),
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS client_log (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           at INTEGER NOT NULL DEFAULT (unixepoch()),
@@ -1773,6 +1807,8 @@ var index_default = {
       if (path === "/api/auth/register" && request.method === "POST") return await handleRegister(request, env);
       if (path === "/api/auth/login" && request.method === "POST") return await handleLogin(request, env);
       if (path === "/api/client-log" && request.method === "POST") return await handleClientLog(request, env);
+      const hookMatch = path.match(/^\/api\/hook\/([A-Za-z0-9_-]{24,80})$/);
+      if (hookMatch && request.method === "POST") return await handleWebhook(request, env, hookMatch[1]);
       if (path === "/api/push/key" && request.method === "GET") return await handlePushKey(request, env);
       if (path === "/api/push/subscribe" && request.method === "POST") return await handlePushSubscribe(request, env);
       if (path === "/api/push/unsubscribe" && request.method === "POST") return await handlePushUnsubscribe(request, env);
