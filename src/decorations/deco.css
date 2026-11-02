@@ -35,3 +35,13 @@
 .dm-item, .user-bar, .member-row, .friend-item { overflow: visible !important; }
 .dm-item-bg, .nameplate-bg { border-radius: inherit; overflow: hidden; }
 .dm-item .avatar-wrap.has-deco, .user-bar .avatar-wrap.has-deco, .member-row .avatar-wrap.has-deco, .friend-item .avatar-wrap.has-deco { z-index: 6; }
+
+/* rows with a decoration or a nameplate get a little air, so a decoration does not run into the row next to it */
+.member-row:has(.has-deco, .nameplate-bg), .friend-item:has(.has-deco, .nameplate-bg) { margin-top: 8px; margin-bottom: 8px; }
+.dm-item:has(.has-deco) { margin-top: 5px; margin-bottom: 5px; }
+/* the Owner badge and the buttons stay readable over any nameplate */
+.member-row:has(.nameplate-bg) .member-owner { background: rgba(8, 9, 12, .62); border-color: rgba(255, 255, 255, .28); color: #fff; text-shadow: none; }
+.member-row:has(.nameplate-bg) .member-owner svg { color: #f4c85e; }
+.member-row:has(.nameplate-bg) .member-kick { background: rgba(8, 9, 12, .62); }
+/* a soft dark veil on the left of a nameplate keeps the name readable on bright art */
+.member-row .nameplate-bg::after, .friend-item .nameplate-bg::after, .dm-item .nameplate-bg::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(8, 9, 12, .55) 0%, rgba(8, 9, 12, .28) 45%, rgba(8, 9, 12, 0) 75%); pointer-events: none; }
