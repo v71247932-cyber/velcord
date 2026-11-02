@@ -174,6 +174,9 @@ if [ "$PLATFORM" = "darwin" ]; then
   PB="/usr/libexec/PlistBuddy"
   PL="$APP/Contents/Info.plist"
   setp() { "$PB" -c "Set :$1 \"$2\"" "$PL" 2>/dev/null || "$PB" -c "Add :$1 string \"$2\"" "$PL"; }
+  # Newer Electron builds can name an icon from an asset catalog, which would win over electron.icns: use the file we just put in
+  "$PB" -c "Delete :CFBundleIconName" "$PL" >/dev/null 2>&1 || true
+  setp CFBundleIconFile "electron.icns"
   setp CFBundleName "Velcord"
   setp CFBundleDisplayName "Velcord"
   setp CFBundleIdentifier "com.velcord.desktop"
@@ -192,6 +195,8 @@ if [ "$PLATFORM" = "darwin" ]; then
   fi
   touch "$APP"
   [ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$APP" >/dev/null 2>&1 || true
+  # The Dock (and with it the Cmd+Tab switcher and Launchpad) keeps showing the old icon until it restarts
+  killall Dock >/dev/null 2>&1 || true
   ok "installed"
 
   step "Opening Velcord (macOS will ask for notifications; the microphone, camera and screen are asked for only when you use them in a call)"
