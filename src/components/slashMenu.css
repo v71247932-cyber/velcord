@@ -72,3 +72,12 @@
 .slash-card-opt { color: #9a9ea6; font-size: 15px; flex: none; }
 .slash-card-optdesc { color: #6f737b; font-size: 13px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 600px) { .slash-card { left: 8px; right: 8px; } .slash-card-optdesc { display: none; } }
+
+/* buttons a bot puts under a message */
+.msg-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.msg-btn { border: 0; border-radius: 6px; padding: 8px 16px; font-size: 14px; font-weight: 600; cursor: pointer; color: #fff; touch-action: manipulation; transition: filter .15s, transform .05s; }
+.msg-btn:hover { filter: brightness(1.12); }
+.msg-btn:active { transform: translateY(1px); }
+.msg-btn-primary { background: #248046; }
+.msg-btn-secondary { background: #4e5058; }
+.msg-btn-danger { background: #da373c; }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
-import type { Message, Group, BotCommands } from '../api';
+import type { Message, Group, BotCommands, MessageButton } from '../api';
 import { useAuth } from '../AuthContext';
 import Avatar from '../components/Avatar';
 import VerifiedBadge from '../components/VerifiedBadge';
@@ -137,6 +137,18 @@ export default function GroupChatPanel({ group, channel }: GroupChatPanelProps) 
         }
     }
 
+    // Buttons only work on the newest message that has them: a later message with an empty list takes them away
+    let buttonsMsgId = 0;
+    for (const m of messages) if (m.buttons) buttonsMsgId = m.buttons.length > 0 ? m.id : 0;
+
+    function pressButton(b: MessageButton) {
+        if (b.send) send(b.send).catch((e: any) => alert(e.message || 'Message not sent'));
+        else if (b.fill) {
+            setInput(b.fill);
+            textareaRef.current?.focus();
+        }
+    }
+
     const rendered = messages.map((msg) => {
         const isMe = user && msg.sender.id === user.id;
 
@@ -167,6 +179,13 @@ export default function GroupChatPanel({ group, channel }: GroupChatPanelProps) 
                             <span className="msg-time">{formatTime(msg.createdAt)}</span>
                         </div>
                         <MessageContent content={msg.content} sender={msg.sender} createdAt={msg.createdAt} />
+                        {msg.id === buttonsMsgId && msg.buttons && (
+                            <div className="msg-buttons">
+                                {msg.buttons.map((b, i) => (
+                                    <button key={i} type="button" className={`msg-btn msg-btn-${b.style || 'secondary'}`} onClick={() => pressButton(b)}>{b.label}</button>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

@@ -1328,7 +1328,7 @@ async function handleGetGroupMessages(request: Request, env: Env, groupId: numbe
   const inChannel = `(gm.channel_id = ? OR (gm.channel_id IS NULL AND ? = ?))`; // pages from before channels left it empty: that is "general"
   const chBind = [channelId, channelId, generalId];
 
-  const select = `SELECT gm.id, gm.content, gm.created_at,
+  const select = `SELECT gm.id, gm.content, gm.created_at, gm.buttons,
            u.id as sender_id, u.username as sender_username, u.avatar_color as sender_avatar_color, ${AV('u')} as sender_avatar_url
     FROM group_messages gm JOIN users u ON u.id = gm.sender_id`;
   const messages = legacySince !== null
@@ -1342,6 +1342,7 @@ async function handleGetGroupMessages(request: Request, env: Env, groupId: numbe
     id: m.id,
     content: m.content,
     createdAt: m.created_at,
+    ...(m.buttons != null ? { buttons: JSON.parse(m.buttons) } : {}),
     sender: { id: m.sender_id, username: m.sender_username, verified: isVerified(m.sender_username), tick: hasTick(m.sender_username), avatarColor: m.sender_avatar_color, avatarUrl: avatarPath('avatars', m.sender_id, m.sender_avatar_url) },
   })));
 }
@@ -1362,9 +1363,23 @@ async function handleDeleteGroupMessage(request: Request, env: Env, messageId: n
 async function handleSendGroupMessage(request: Request, env: Env, groupId: number): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
-  const { content, channelId: asked } = await request.json() as { content: string; channelId?: number };
+  const { content, channelId: asked, buttons: askedButtons } = await request.json() as { content: string; channelId?: number; buttons?: { label?: string; send?: string; fill?: string; style?: string }[] };
   if (!content?.trim()) return err('Message cannot be empty');
   if (!(await isGroupMember(env, groupId, auth.userId))) return err('Not a member of this group', 403);
+  // Only bot accounts (those with registered commands) can attach buttons; an empty list clears the buttons of earlier messages
+  let buttonsJson: string | null = null;
+  if (Array.isArray(askedButtons)) {
+    const isBot = await env.DB.prepare('SELECT 1 FROM bot_commands WHERE user_id = ? LIMIT 1').bind(auth.userId).first();
+    if (isBot) {
+      const clean = askedButtons.slice(0, 5).map((b) => ({
+        label: String(b.label || '').slice(0, 40),
+        ...(b.send ? { send: String(b.send).slice(0, 300) } : {}),
+        ...(b.fill ? { fill: String(b.fill).slice(0, 300) } : {}),
+        style: ['primary', 'secondary', 'danger'].includes(String(b.style)) ? String(b.style) : 'secondary',
+      })).filter((b) => b.label && (('send' in b) || ('fill' in b)));
+      buttonsJson = JSON.stringify(clean);
+    }
+  }
 
   let channelId = await defaultTextChannel(env, groupId);
   if (Number.isInteger(asked) && asked !== channelId) {
@@ -1373,10 +1388,10 @@ async function handleSendGroupMessage(request: Request, env: Env, groupId: numbe
     channelId = asked as number;
   }
   const result = await env.DB.prepare(`
-    INSERT INTO group_messages (group_id, sender_id, content, channel_id)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO group_messages (group_id, sender_id, content, channel_id, buttons)
+    VALUES (?, ?, ?, ?, ?)
     RETURNING id, created_at
-  `).bind(groupId, auth.userId, content.trim(), channelId).first() as { id: number; created_at: number };
+  `).bind(groupId, auth.userId, content.trim(), channelId, buttonsJson).first() as { id: number; created_at: number };
   await env.DB.prepare('DELETE FROM typing WHERE k = ?').bind(`g:${auth.userId}:${groupId}`).run();
   {
     const gname = await env.DB.prepare('SELECT name FROM groups WHERE id = ?').bind(groupId).first() as { name: string } | null;
@@ -1396,6 +1411,7 @@ function ensureSchema(env: Env): Promise<void> {
         try { await env.DB.prepare(`ALTER TABLE direct_messages ADD COLUMN ${col} INTEGER`).run(); } catch { /* already exists */ }
       }
       try { await env.DB.prepare('ALTER TABLE users ADD COLUMN last_seen INTEGER').run(); } catch { /* already exists */ }
+      try { await env.DB.prepare('ALTER TABLE group_messages ADD COLUMN buttons TEXT').run(); } catch { /* already exists */ }
       try { await env.DB.prepare("ALTER TABLE bot_commands ADD COLUMN options TEXT NOT NULL DEFAULT '[]'").run(); } catch { /* already exists, or the table is made a bit later */ }
       try { await env.DB.prepare('ALTER TABLE groups ADD COLUMN avatar_url TEXT').run(); } catch { /* already exists */ }
       try { await env.DB.prepare('ALTER TABLE users ADD COLUMN gifs_protected INTEGER NOT NULL DEFAULT 0').run(); } catch { /* already exists */ }

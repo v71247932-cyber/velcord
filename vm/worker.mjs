@@ -1130,7 +1130,7 @@ async function handleGetGroupMessages(request, env, groupId) {
   const channelId = Number.isInteger(asked) ? asked : generalId;
   const inChannel = `(gm.channel_id = ? OR (gm.channel_id IS NULL AND ? = ?))`;
   const chBind = [channelId, channelId, generalId];
-  const select = `SELECT gm.id, gm.content, gm.created_at,
+  const select = `SELECT gm.id, gm.content, gm.created_at, gm.buttons,
            u.id as sender_id, u.username as sender_username, u.avatar_color as sender_avatar_color, ${AV("u")} as sender_avatar_url
     FROM group_messages gm JOIN users u ON u.id = gm.sender_id`;
   const messages = legacySince !== null ? await env.DB.prepare(`${select} WHERE gm.group_id = ? AND ${inChannel} AND ${GROUP_VISIBLE("gm")} AND gm.created_at > ? ORDER BY gm.created_at ASC, gm.id ASC LIMIT 100`).bind(groupId, ...chBind, legacySince).all() : initial ? await env.DB.prepare(`${select} WHERE gm.group_id = ? AND ${inChannel} AND ${GROUP_VISIBLE("gm")} ORDER BY gm.id DESC LIMIT ${PAGE_FIRST}`).bind(groupId, ...chBind).all() : await env.DB.prepare(`${select} WHERE gm.group_id = ? AND ${inChannel} AND ${GROUP_VISIBLE("gm")} AND gm.id > ? ORDER BY gm.id ASC LIMIT 100`).bind(groupId, ...chBind, afterId).all();
@@ -1139,6 +1139,7 @@ async function handleGetGroupMessages(request, env, groupId) {
     id: m.id,
     content: m.content,
     createdAt: m.created_at,
+    ...m.buttons != null ? { buttons: JSON.parse(m.buttons) } : {},
     sender: { id: m.sender_id, username: m.sender_username, verified: isVerified(m.sender_username), tick: hasTick(m.sender_username), avatarColor: m.sender_avatar_color, avatarUrl: avatarPath("avatars", m.sender_id, m.sender_avatar_url) }
   })));
 }
@@ -1154,9 +1155,22 @@ async function handleDeleteGroupMessage(request, env, messageId) {
 async function handleSendGroupMessage(request, env, groupId) {
   const auth = await getAuth(request, env);
   if (!auth) return err("Unauthorized", 401);
-  const { content, channelId: asked } = await request.json();
+  const { content, channelId: asked, buttons: askedButtons } = await request.json();
   if (!content?.trim()) return err("Message cannot be empty");
   if (!await isGroupMember(env, groupId, auth.userId)) return err("Not a member of this group", 403);
+  let buttonsJson = null;
+  if (Array.isArray(askedButtons)) {
+    const isBot = await env.DB.prepare("SELECT 1 FROM bot_commands WHERE user_id = ? LIMIT 1").bind(auth.userId).first();
+    if (isBot) {
+      const clean = askedButtons.slice(0, 5).map((b) => ({
+        label: String(b.label || "").slice(0, 40),
+        ...b.send ? { send: String(b.send).slice(0, 300) } : {},
+        ...b.fill ? { fill: String(b.fill).slice(0, 300) } : {},
+        style: ["primary", "secondary", "danger"].includes(String(b.style)) ? String(b.style) : "secondary"
+      })).filter((b) => b.label && ("send" in b || "fill" in b));
+      buttonsJson = JSON.stringify(clean);
+    }
+  }
   let channelId = await defaultTextChannel(env, groupId);
   if (Number.isInteger(asked) && asked !== channelId) {
     const ch = await env.DB.prepare("SELECT id FROM channels WHERE id = ? AND group_id = ? AND kind = 'text'").bind(asked, groupId).first();
@@ -1164,10 +1178,10 @@ async function handleSendGroupMessage(request, env, groupId) {
     channelId = asked;
   }
   const result = await env.DB.prepare(`
-    INSERT INTO group_messages (group_id, sender_id, content, channel_id)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO group_messages (group_id, sender_id, content, channel_id, buttons)
+    VALUES (?, ?, ?, ?, ?)
     RETURNING id, created_at
-  `).bind(groupId, auth.userId, content.trim(), channelId).first();
+  `).bind(groupId, auth.userId, content.trim(), channelId, buttonsJson).first();
   await env.DB.prepare("DELETE FROM typing WHERE k = ?").bind(`g:${auth.userId}:${groupId}`).run();
   {
     const gname = await env.DB.prepare("SELECT name FROM groups WHERE id = ?").bind(groupId).first();
@@ -1188,6 +1202,10 @@ function ensureSchema(env) {
       }
       try {
         await env.DB.prepare("ALTER TABLE users ADD COLUMN last_seen INTEGER").run();
+      } catch {
+      }
+      try {
+        await env.DB.prepare("ALTER TABLE group_messages ADD COLUMN buttons TEXT").run();
       } catch {
       }
       try {

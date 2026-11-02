@@ -267,12 +267,23 @@ export interface BotCommands {
     commands: { name: string; description: string; options?: { name: string; description: string }[] }[];
 }
 
+export interface MessageButton {
+    label: string;
+    /** pressing it sends this text as a message from the person who pressed */
+    send?: string;
+    /** pressing it only puts this text in the message box */
+    fill?: string;
+    style?: 'primary' | 'secondary' | 'danger';
+}
+
 export interface Message {
     id: number;
     content: string;
     createdAt: number;
     deliveredAt?: number | null;
     readAt?: number | null;
+    /** buttons a bot put under the message (an empty list removes the buttons of the earlier messages) */
+    buttons?: MessageButton[];
     /** shown instantly while the server is still saving it */
     pending?: boolean;
     sender: User;
