@@ -404,14 +404,17 @@ export default function MainLayout() {
                         <span>Friends</span>
                         {pendingCount > 0 && <span className="friends-row-badge">{pendingCount}</span>}
                     </button>
-                    <button
-                        className={`friends-row ${view.type === 'shop' ? 'active' : ''}`}
-                        onClick={() => { setView({ type: 'shop' }); setSidebarOpen(false); }}
-                        id="nav-shop"
-                    >
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" /><path d="M3 6h18" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
-                        <span>Shop</span>
-                    </button>
+                    {/* the Shop is only offered from Friends (or while it is open), not inside a chat or a group */}
+                    {(view.type === 'friends' || view.type === 'shop') && (
+                        <button
+                            className={`friends-row ${view.type === 'shop' ? 'active' : ''}`}
+                            onClick={() => { setView({ type: 'shop' }); setSidebarOpen(false); }}
+                            id="nav-shop"
+                        >
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" /><path d="M3 6h18" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
+                            <span>Shop</span>
+                        </button>
+                    )}
 
                     {view.type === 'group' && currentGroup && (
                         <GroupChannels
