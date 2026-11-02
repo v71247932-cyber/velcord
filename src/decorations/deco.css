@@ -10,3 +10,15 @@
 }
 .avatar-deco svg { width: 100%; height: 100%; display: block; overflow: visible; }
 .avatar-wrap.has-deco { overflow: visible; }
+
+/* profile effects: a scene over the whole card */
+.profile-fx { position: absolute; inset: 0; pointer-events: none; z-index: 6; overflow: hidden; border-radius: inherit; }
+.profile-fx svg { width: 100%; height: 100%; display: block; }
+
+/* nameplates: the animated background of a list row */
+.nameplate-bg { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.nameplate-bg svg { width: 100%; height: 100%; display: block; }
+.dm-item:has(.nameplate-bg), .member-row:has(.nameplate-bg), .friend-item:has(.nameplate-bg) { position: relative; overflow: hidden; border-radius: 8px; }
+.dm-item:has(.nameplate-bg) > :not(.nameplate-bg), .member-row:has(.nameplate-bg) > :not(.nameplate-bg), .friend-item:has(.nameplate-bg) > :not(.nameplate-bg) { position: relative; z-index: 1; }
+.dm-item:has(.nameplate-bg) .dm-name, .member-row:has(.nameplate-bg) .member-name, .friend-item:has(.nameplate-bg) .friend-name { color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, .65); }
+.dm-item.active:has(.nameplate-bg) { box-shadow: 0 0 0 2px rgba(255, 255, 255, .35) inset; }

@@ -24,7 +24,9 @@ import { useChannels } from '../useChannels';
 import GroupChannels from '../components/GroupChannels';
 import '../switch.css';
 import GroupMembersPanel from '../components/GroupMembersPanel';
+import PushBanner from '../components/PushBanner';
 import ShopPage from './ShopPage';
+import { NameplateOf, ProfileEffectOf } from '../decorations/Cosmetics';
 import { startDecorationSync, stopDecorationSync } from '../decorations/store';
 import CreateGroupModal from '../components/CreateGroupModal';
 
@@ -443,6 +445,7 @@ export default function MainLayout() {
                             onClick={() => openDM(f)}
                             id={`dm-${f.id}`}
                         >
+                            <NameplateOf name={f.username} />
                             {(f.bannerUrl || (f.bannerColor1 && f.bannerColor2)) && <div className="dm-item-bg" style={bannerStyle(f)} />}
                             <Avatar name={f.username} color={f.avatarColor} src={f.avatarUrl} size="sm" status={f.online ? 'online' : 'offline'} />
                             <div className="sidebar-user-details">
@@ -509,6 +512,7 @@ export default function MainLayout() {
 
             {/* Main content */}
             <main className="main-content">
+                <PushBanner />
                 {view.type === 'friends' && (
                     <>
                         <div className="content-header">
@@ -624,7 +628,8 @@ export default function MainLayout() {
 
             {showProfileMenu && (
                 <div className="modal-overlay" onClick={() => setShowProfileMenu(false)}>
-                    <div className="modal-content profile-modal" onClick={e => e.stopPropagation()}>
+                    <div className="modal-content profile-modal" style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
+                        <ProfileEffectOf name={user!.username} />
                         <div className="profile-banner" style={previewColors ? { background: `linear-gradient(135deg, ${bannerC1}, ${bannerC2})` } : bannerStyle(user!)}>
                             <button className="profile-close" onClick={() => setShowProfileMenu(false)} aria-label="Close">×</button>
                         </div>

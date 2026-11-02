@@ -121,6 +121,7 @@ async function handleSystemNotify(request, env) {
   }
   if (!fr) return err("Velcord is only in the friend list of approved accounts", 403);
   const msg = await env.DB.prepare("INSERT INTO direct_messages (sender_id, receiver_id, content) VALUES (?, ?, ?) RETURNING id, created_at").bind(sys, target.id, text.trim()).first();
+  await pushTo(env, [target.id], { title: "Velcord", body: text.trim().slice(0, 140), tag: "velcord-system", url: "/app" });
   return json({ id: msg.id, createdAt: msg.created_at, to: target.username }, 201);
 }
 async function handleSystemStatus(request, env) {
@@ -278,6 +279,60 @@ async function handleSystemClientLog(request, env) {
   if (!env.SYSTEM_KEY || !key || key !== env.SYSTEM_KEY) return err("Not found", 404);
   const rows = await env.DB.prepare("SELECT id, at, ua, kind, msg FROM client_log ORDER BY id DESC LIMIT 120").all();
   return json(rows.results);
+}
+async function handleGetCosmetics(request, env) {
+  const auth = await getAuth(request, env);
+  if (!auth) return err("Unauthorized", 401);
+  const rows = await env.DB.prepare("SELECT u.username, i.kind, i.item FROM user_items i JOIN users u ON u.id = i.user_id").all();
+  const effects = {}, plates = {};
+  for (const r of rows.results) {
+    (r.kind === "effect" ? effects : plates)[r.username.toLowerCase()] = r.item;
+  }
+  return json({ effects, plates });
+}
+async function handleSetCosmetic(request, env) {
+  const auth = await getAuth(request, env);
+  if (!auth) return err("Unauthorized", 401);
+  const { kind, id } = await request.json();
+  if (kind !== "effect" && kind !== "plate") return err("Invalid kind");
+  if (id === null || id === void 0 || id === "") {
+    await env.DB.prepare("DELETE FROM user_items WHERE user_id = ? AND kind = ?").bind(auth.userId, kind).run();
+    return json({ success: true, id: null });
+  }
+  if (!/^[a-z0-9-]{3,40}$/.test(id)) return err("Invalid item");
+  await env.DB.prepare("INSERT INTO user_items (user_id, kind, item) VALUES (?, ?, ?) ON CONFLICT(user_id, kind) DO UPDATE SET item = excluded.item").bind(auth.userId, kind, id).run();
+  return json({ success: true, id });
+}
+var pushPreview = (content) => /^\[img:/.test(content) ? "Sent a picture" : /^\[vid:/.test(content) ? "Sent a video" : /^\[gif:/.test(content) ? "Sent a GIF" : content.slice(0, 140);
+async function pushTo(env, userIds, payload) {
+  if (!env.PUSH || userIds.length === 0) return;
+  try {
+    const marks = userIds.map(() => "?").join(",");
+    const away = await env.DB.prepare(`SELECT id FROM users WHERE id IN (${marks}) AND (last_seen IS NULL OR last_seen < unixepoch() - 25)`).bind(...userIds).all();
+    const ids = away.results.map((r) => r.id);
+    if (ids.length) env.PUSH(ids, payload);
+  } catch {
+  }
+}
+async function handlePushKey(_request, env) {
+  if (!env.VAPID_PUBLIC_KEY) return err("Push is not set up", 404);
+  return json({ key: env.VAPID_PUBLIC_KEY });
+}
+async function handlePushSubscribe(request, env) {
+  const auth = await getAuth(request, env);
+  if (!auth) return err("Unauthorized", 401);
+  const { endpoint, keys } = await request.json();
+  if (!endpoint || !/^https:\/\//.test(endpoint) || endpoint.length > 1e3 || !keys?.p256dh || !keys?.auth) return err("Invalid subscription");
+  await env.DB.prepare(`INSERT INTO push_subs (endpoint, user_id, p256dh, auth, ua) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth, ua = excluded.ua`).bind(endpoint, auth.userId, keys.p256dh, keys.auth, (request.headers.get("User-Agent") || "").slice(0, 200)).run();
+  return json({ ok: true });
+}
+async function handlePushUnsubscribe(request, env) {
+  const auth = await getAuth(request, env);
+  if (!auth) return err("Unauthorized", 401);
+  const { endpoint } = await request.json();
+  if (endpoint) await env.DB.prepare("DELETE FROM push_subs WHERE endpoint = ? AND user_id = ?").bind(endpoint, auth.userId).run();
+  return json({ ok: true });
 }
 async function handleSystemVideos(request, env) {
   const key = request.headers.get("X-System-Key");
@@ -780,6 +835,7 @@ async function handleSendMessage(request, env, otherUserId) {
   `).bind(auth.userId, otherUserId, content.trim(), auth.userId, otherUserId, otherUserId, auth.userId).first();
   if (!result) return err("You are not friends with this user yet", 403);
   await env.DB.prepare("DELETE FROM typing WHERE k = ?").bind(`d:${auth.userId}:${otherUserId}`).run();
+  await pushTo(env, [otherUserId], { title: auth.username, body: pushPreview(content.trim()), tag: `dm-${auth.userId}`, url: "/app" });
   return json({ id: result.id, content: content.trim(), createdAt: result.created_at, senderId: auth.userId }, 201);
 }
 async function handleCreateGroup(request, env) {
@@ -972,6 +1028,11 @@ async function handleSendGroupMessage(request, env, groupId) {
     RETURNING id, created_at
   `).bind(groupId, auth.userId, content.trim(), channelId).first();
   await env.DB.prepare("DELETE FROM typing WHERE k = ?").bind(`g:${auth.userId}:${groupId}`).run();
+  {
+    const gname = await env.DB.prepare("SELECT name FROM groups WHERE id = ?").bind(groupId).first();
+    const others = await env.DB.prepare("SELECT user_id FROM group_members WHERE group_id = ? AND user_id != ?").bind(groupId, auth.userId).all();
+    await pushTo(env, others.results.map((r) => r.user_id), { title: gname?.name || "Group", body: `${auth.username}: ${pushPreview(content.trim())}`, tag: `grp-${groupId}`, url: "/app" });
+  }
   return json({ id: result.id, content: content.trim(), createdAt: result.created_at, senderId: auth.userId }, 201);
 }
 var schemaReady = null;
@@ -1067,7 +1128,17 @@ function ensureSchema(env) {
           linked_id INTEGER NOT NULL,
           PRIMARY KEY (user_id, linked_id)
         )`),
+        env.DB.prepare("CREATE TABLE IF NOT EXISTS user_items (user_id INTEGER NOT NULL, kind TEXT NOT NULL, item TEXT NOT NULL, PRIMARY KEY (user_id, kind))"),
         env.DB.prepare("CREATE TABLE IF NOT EXISTS user_decorations (user_id INTEGER PRIMARY KEY, deco TEXT NOT NULL)"),
+        env.DB.prepare(`CREATE TABLE IF NOT EXISTS push_subs (
+          endpoint TEXT PRIMARY KEY,
+          user_id INTEGER NOT NULL,
+          p256dh TEXT NOT NULL,
+          auth TEXT NOT NULL,
+          ua TEXT NOT NULL DEFAULT '',
+          created_at INTEGER NOT NULL DEFAULT (unixepoch())
+        )`),
+        env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_push_user ON push_subs(user_id)"),
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS client_log (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           at INTEGER NOT NULL DEFAULT (unixepoch()),
@@ -1551,6 +1622,7 @@ async function handleCallSignal(request, env) {
   if (!friendship) return err("You can only call friends", 403);
   if (await isSystemUserId(env, to)) return err("You cannot call Velcord", 403);
   await env.DB.prepare("INSERT INTO call_signals (from_id, to_id, type, payload) VALUES (?, ?, ?, ?)").bind(auth.userId, to, type, payload ?? null).run();
+  if (type === "invite") await pushTo(env, [to], { title: auth.username, body: "Incoming call", tag: `call-${auth.userId}`, url: "/app" });
   return json({ success: true }, 201);
 }
 async function handleCallPoll(request, env) {
@@ -1628,6 +1700,8 @@ var index_default = {
       if (path === "/api/system/bot-commands" && request.method === "POST") return await handleSystemBotCommands(request, env);
       if (path === "/api/decorations" && request.method === "GET") return await handleGetDecorations(request, env);
       if (path === "/api/me/decoration" && request.method === "POST") return await handleSetDecoration(request, env);
+      if (path === "/api/cosmetics" && request.method === "GET") return await handleGetCosmetics(request, env);
+      if (path === "/api/me/cosmetic" && request.method === "POST") return await handleSetCosmetic(request, env);
       if (path === "/api/system/videos" && request.method === "POST") return await handleSystemVideos(request, env);
       if (path === "/api/system/gif-protect" && request.method === "POST") return await handleSystemGifProtect(request, env);
       if (path === "/api/system/test-account" && request.method === "POST") return await handleSystemTestAccount(request, env);
@@ -1674,6 +1748,9 @@ var index_default = {
       if (path === "/api/auth/register" && request.method === "POST") return await handleRegister(request, env);
       if (path === "/api/auth/login" && request.method === "POST") return await handleLogin(request, env);
       if (path === "/api/client-log" && request.method === "POST") return await handleClientLog(request, env);
+      if (path === "/api/push/key" && request.method === "GET") return await handlePushKey(request, env);
+      if (path === "/api/push/subscribe" && request.method === "POST") return await handlePushSubscribe(request, env);
+      if (path === "/api/push/unsubscribe" && request.method === "POST") return await handlePushUnsubscribe(request, env);
       if (path === "/api/me" && request.method === "GET") return await handleMe(request, env);
       if (path === "/api/me" && request.method === "PATCH") return await handleUpdateProfile(request, env);
       const profileRoute = path.match(/^\/api\/users\/(\d+)\/(profile|note)$/);

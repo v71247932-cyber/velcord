@@ -1,3 +1,4 @@
+import { NameplateOf } from '../decorations/Cosmetics';
 import { useState, useEffect } from 'react';
 import { api } from '../api';
 import type { FriendUser, FriendsData } from '../api';
@@ -104,6 +105,7 @@ export default function FriendsPanel({ onOpenDM }: FriendsPanelProps) {
                                         onClick={() => onOpenDM(f)}
                                         onKeyDown={e => { if (e.key === 'Enter' && e.target === e.currentTarget) onOpenDM(f); }}
                                     >
+                                        <NameplateOf name={f.username} />
                                         <Avatar name={f.username} color={f.avatarColor} src={f.avatarUrl} size="md" zoomable userId={f.id} status={f.online ? 'online' : 'offline'} />
                                         <div className="friend-info">
                                             <div className="friend-name">{f.username}{(f.verified || f.tick) && <VerifiedBadge size={14} />}</div>

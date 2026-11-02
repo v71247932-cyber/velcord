@@ -10,6 +10,9 @@ export interface Env {
   MEDIA?: KVNamespace;
   /** Secret that lets the owner post official notifications as the Velcord account */
   SYSTEM_KEY?: string;
+  /** Web Push: public key for the browsers, and the function (given by the Node server) that sends one */
+  VAPID_PUBLIC_KEY?: string;
+  PUSH?: (userIds: number[], payload: { title: string; body: string; tag: string; url: string }) => void;
 }
 
 // --- Simple JWT implementation using Web Crypto ---
@@ -153,6 +156,7 @@ async function handleSystemNotify(request: Request, env: Env): Promise<Response>
 
   const msg = await env.DB.prepare('INSERT INTO direct_messages (sender_id, receiver_id, content) VALUES (?, ?, ?) RETURNING id, created_at')
     .bind(sys, target.id, text.trim()).first() as { id: number; created_at: number };
+  await pushTo(env, [target.id], { title: 'Velcord', body: text.trim().slice(0, 140), tag: 'velcord-system', url: '/app' });
   return json({ id: msg.id, createdAt: msg.created_at, to: target.username }, 201);
 }
 
@@ -325,6 +329,68 @@ async function handleSystemClientLog(request: Request, env: Env): Promise<Respon
   if (!env.SYSTEM_KEY || !key || key !== env.SYSTEM_KEY) return err('Not found', 404);
   const rows = await env.DB.prepare('SELECT id, at, ua, kind, msg FROM client_log ORDER BY id DESC LIMIT 120').all();
   return json(rows.results);
+}
+
+// --- Shop: profile effects and nameplates (kind 'effect' / 'plate'); the avatar decoration keeps its own table ---
+async function handleGetCosmetics(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const rows = await env.DB.prepare('SELECT u.username, i.kind, i.item FROM user_items i JOIN users u ON u.id = i.user_id').all();
+  const effects: Record<string, string> = {}, plates: Record<string, string> = {};
+  for (const r of rows.results as { username: string; kind: string; item: string }[]) {
+    (r.kind === 'effect' ? effects : plates)[r.username.toLowerCase()] = r.item;
+  }
+  return json({ effects, plates });
+}
+async function handleSetCosmetic(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const { kind, id } = await request.json() as { kind?: string; id?: string | null };
+  if (kind !== 'effect' && kind !== 'plate') return err('Invalid kind');
+  if (id === null || id === undefined || id === '') {
+    await env.DB.prepare('DELETE FROM user_items WHERE user_id = ? AND kind = ?').bind(auth.userId, kind).run();
+    return json({ success: true, id: null });
+  }
+  if (!/^[a-z0-9-]{3,40}$/.test(id)) return err('Invalid item');
+  await env.DB.prepare('INSERT INTO user_items (user_id, kind, item) VALUES (?, ?, ?) ON CONFLICT(user_id, kind) DO UPDATE SET item = excluded.item').bind(auth.userId, kind, id).run();
+  return json({ success: true, id });
+}
+
+// --- Web Push: a notification reaches a phone or computer even when Velcord is closed ---
+const pushPreview = (content: string) =>
+  /^\[img:/.test(content) ? 'Sent a picture' : /^\[vid:/.test(content) ? 'Sent a video' : /^\[gif:/.test(content) ? 'Sent a GIF' : content.slice(0, 140);
+
+/** Sends to the people who are not looking at Velcord right now (the open page makes its own sound and banner) */
+async function pushTo(env: Env, userIds: number[], payload: { title: string; body: string; tag: string; url: string }) {
+  if (!env.PUSH || userIds.length === 0) return;
+  try {
+    const marks = userIds.map(() => '?').join(',');
+    const away = await env.DB.prepare(`SELECT id FROM users WHERE id IN (${marks}) AND (last_seen IS NULL OR last_seen < unixepoch() - 25)`).bind(...userIds).all();
+    const ids = (away.results as { id: number }[]).map((r) => r.id);
+    if (ids.length) env.PUSH(ids, payload);
+  } catch { /* a failed push never blocks a message */ }
+}
+
+async function handlePushKey(_request: Request, env: Env): Promise<Response> {
+  if (!env.VAPID_PUBLIC_KEY) return err('Push is not set up', 404);
+  return json({ key: env.VAPID_PUBLIC_KEY });
+}
+async function handlePushSubscribe(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const { endpoint, keys } = await request.json() as { endpoint?: string; keys?: { p256dh?: string; auth?: string } };
+  if (!endpoint || !/^https:\/\//.test(endpoint) || endpoint.length > 1000 || !keys?.p256dh || !keys?.auth) return err('Invalid subscription');
+  await env.DB.prepare(`INSERT INTO push_subs (endpoint, user_id, p256dh, auth, ua) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth, ua = excluded.ua`)
+    .bind(endpoint, auth.userId, keys.p256dh, keys.auth, (request.headers.get('User-Agent') || '').slice(0, 200)).run();
+  return json({ ok: true });
+}
+async function handlePushUnsubscribe(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const { endpoint } = await request.json() as { endpoint?: string };
+  if (endpoint) await env.DB.prepare('DELETE FROM push_subs WHERE endpoint = ? AND user_id = ?').bind(endpoint, auth.userId).run();
+  return json({ ok: true });
 }
 
 // Recent video clips (to diagnose playback problems); needs the secret key
@@ -931,7 +997,8 @@ async function handleSendMessage(request: Request, env: Env, otherUserId: number
     RETURNING id, created_at
   `).bind(auth.userId, otherUserId, content.trim(), auth.userId, otherUserId, otherUserId, auth.userId).first() as { id: number; created_at: number } | null;
   if (!result) return err('You are not friends with this user yet', 403);
-  await env.DB.prepare('DELETE FROM typing WHERE k = ?').bind(`d:${auth.userId}:${otherUserId}`).run(); // the "typing" line disappears when the message arrives
+  await env.DB.prepare('DELETE FROM typing WHERE k = ?').bind(`d:${auth.userId}:${otherUserId}`).run();
+  await pushTo(env, [otherUserId], { title: auth.username, body: pushPreview(content.trim()), tag: `dm-${auth.userId}`, url: '/app' }); // the "typing" line disappears when the message arrives
 
   return json({ id: result.id, content: content.trim(), createdAt: result.created_at, senderId: auth.userId }, 201);
 }
@@ -1163,6 +1230,11 @@ async function handleSendGroupMessage(request: Request, env: Env, groupId: numbe
     RETURNING id, created_at
   `).bind(groupId, auth.userId, content.trim(), channelId).first() as { id: number; created_at: number };
   await env.DB.prepare('DELETE FROM typing WHERE k = ?').bind(`g:${auth.userId}:${groupId}`).run();
+  {
+    const gname = await env.DB.prepare('SELECT name FROM groups WHERE id = ?').bind(groupId).first() as { name: string } | null;
+    const others = await env.DB.prepare('SELECT user_id FROM group_members WHERE group_id = ? AND user_id != ?').bind(groupId, auth.userId).all();
+    await pushTo(env, (others.results as { user_id: number }[]).map((r) => r.user_id), { title: gname?.name || 'Group', body: `${auth.username}: ${pushPreview(content.trim())}`, tag: `grp-${groupId}`, url: '/app' });
+  }
 
   return json({ id: result.id, content: content.trim(), createdAt: result.created_at, senderId: auth.userId }, 201);
 }
@@ -1237,7 +1309,17 @@ function ensureSchema(env: Env): Promise<void> {
           linked_id INTEGER NOT NULL,
           PRIMARY KEY (user_id, linked_id)
         )`),
+        env.DB.prepare('CREATE TABLE IF NOT EXISTS user_items (user_id INTEGER NOT NULL, kind TEXT NOT NULL, item TEXT NOT NULL, PRIMARY KEY (user_id, kind))'),
         env.DB.prepare('CREATE TABLE IF NOT EXISTS user_decorations (user_id INTEGER PRIMARY KEY, deco TEXT NOT NULL)'),
+        env.DB.prepare(`CREATE TABLE IF NOT EXISTS push_subs (
+          endpoint TEXT PRIMARY KEY,
+          user_id INTEGER NOT NULL,
+          p256dh TEXT NOT NULL,
+          auth TEXT NOT NULL,
+          ua TEXT NOT NULL DEFAULT '',
+          created_at INTEGER NOT NULL DEFAULT (unixepoch())
+        )`),
+        env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_push_user ON push_subs(user_id)'),
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS client_log (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           at INTEGER NOT NULL DEFAULT (unixepoch()),
@@ -1771,6 +1853,7 @@ async function handleCallSignal(request: Request, env: Env): Promise<Response> {
   if (await isSystemUserId(env, to)) return err('You cannot call Velcord', 403);
   await env.DB.prepare('INSERT INTO call_signals (from_id, to_id, type, payload) VALUES (?, ?, ?, ?)')
     .bind(auth.userId, to, type, payload ?? null).run();
+  if (type === 'invite') await pushTo(env, [to], { title: auth.username, body: 'Incoming call', tag: `call-${auth.userId}`, url: '/app' });
   return json({ success: true }, 201);
 }
 
@@ -1861,6 +1944,8 @@ export default {
       if (path === '/api/system/bot-commands' && request.method === 'POST') return await handleSystemBotCommands(request, env);
       if (path === '/api/decorations' && request.method === 'GET') return await handleGetDecorations(request, env);
       if (path === '/api/me/decoration' && request.method === 'POST') return await handleSetDecoration(request, env);
+      if (path === '/api/cosmetics' && request.method === 'GET') return await handleGetCosmetics(request, env);
+      if (path === '/api/me/cosmetic' && request.method === 'POST') return await handleSetCosmetic(request, env);
       if (path === '/api/system/videos' && request.method === 'POST') return await handleSystemVideos(request, env);
       if (path === '/api/system/gif-protect' && request.method === 'POST') return await handleSystemGifProtect(request, env);
       if (path === '/api/system/test-account' && request.method === 'POST') return await handleSystemTestAccount(request, env);
@@ -1919,6 +2004,9 @@ export default {
       if (path === '/api/auth/register' && request.method === 'POST') return await handleRegister(request, env);
       if (path === '/api/auth/login' && request.method === 'POST') return await handleLogin(request, env);
       if (path === '/api/client-log' && request.method === 'POST') return await handleClientLog(request, env);
+      if (path === '/api/push/key' && request.method === 'GET') return await handlePushKey(request, env);
+      if (path === '/api/push/subscribe' && request.method === 'POST') return await handlePushSubscribe(request, env);
+      if (path === '/api/push/unsubscribe' && request.method === 'POST') return await handlePushUnsubscribe(request, env);
       // Profile/User routes
       if (path === '/api/me' && request.method === 'GET') return await handleMe(request, env);
       if (path === '/api/me' && request.method === 'PATCH') return await handleUpdateProfile(request, env);

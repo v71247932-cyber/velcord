@@ -1,4 +1,5 @@
 import Avatar from './Avatar';
+import { ProfileEffectOf } from '../decorations/Cosmetics';
 import type { FriendUser } from '../api';
 import { PhoneIcon, VideoIcon } from './Icons';
 import { bannerStyle } from '../banner';
@@ -16,7 +17,8 @@ export default function ProfileCard({ friend, onCall, onVideoCall, callDisabled 
     const online = !!friend.online;
     return (
         <aside className="right-panel profile-aside">
-            <div className="profile-card">
+            <div className="profile-card" style={{ position: 'relative' }}>
+                <ProfileEffectOf name={friend.username} />
                 <div className="profile-card-banner" style={bannerStyle(friend)} />
                 <div className="profile-card-avatar">
                     <Avatar name={friend.username} color={friend.avatarColor} src={friend.avatarUrl} size="xl" zoomable userId={friend.id} status={online ? 'online' : 'offline'} />

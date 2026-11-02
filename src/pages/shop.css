@@ -78,3 +78,38 @@
     .shop-modal-left { flex: none; padding: 20px; }
     .shop-modal-right { padding: 18px; }
 }
+
+/* kind switch (decorations / effects / nameplates) */
+.shop-kinds { display: flex; gap: 8px; padding: 12px 20px 0; }
+.shop-kinds button { background: #0e0f13; border: 1px solid #1c1d24; color: #b5bac1; padding: 9px 16px; border-radius: 999px; font: 700 14px inherit; cursor: pointer; }
+.shop-kinds button span { opacity: .55; font-weight: 600; margin-left: 4px; }
+.shop-kinds button:hover { color: #fff; border-color: #343642; }
+.shop-kinds button.on { background: #4752c4; border-color: #4752c4; color: #fff; }
+
+/* profile effect previews */
+.shop-mini { position: relative; overflow: hidden; border-radius: 12px; background: #1d1e22; border: 1px solid #2a2b31; }
+.shop-mini-banner { height: 28%; background: linear-gradient(135deg, #4752c4, #8a5cf0); }
+.shop-mini-av { position: absolute; left: 10%; top: 16%; }
+.shop-mini-name { position: absolute; left: 10%; top: 50%; font-weight: 700; font-size: 13px; color: #fff; }
+.shop-mini .profile-fx { z-index: 3; }
+.shop-card.kind-effect .shop-art { height: 230px; }
+.shop-grid.kind-effect { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.shop-hero-art.kind-effect .shop-hero-item { width: 96px; }
+
+/* nameplate previews */
+.shop-plate { position: relative; display: flex; align-items: center; gap: 10px; padding: 0 10px; border-radius: 8px; overflow: hidden; background: #2b2d31; color: #fff; font-weight: 600; font-size: 15px; }
+.shop-plate > *:not(.nameplate-bg) { position: relative; z-index: 1; }
+.shop-plate span { text-shadow: 0 1px 3px rgba(0, 0, 0, .65); }
+.shop-card.kind-plate .shop-art { height: 78px; }
+.shop-grid.kind-plate { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.shop-hero-art.kind-plate { flex-direction: column; gap: 8px; }
+.shop-hero-art.kind-plate .shop-hero-item { width: 150px; flex-direction: row; gap: 8px; font-size: 11px; }
+.shop-list-preview { width: 280px; display: flex; flex-direction: column; gap: 8px; }
+.shop-list-row { height: 48px; border-radius: 8px; background: #2b2d31; display: flex; align-items: center; gap: 10px; padding: 0 10px; color: #9a9ea6; font-size: 14px; }
+.shop-list-row .dot { width: 32px; height: 32px; border-radius: 50%; background: #3a3c43; }
+.shop-list-row.mine { padding: 0; background: transparent; }
+@media (max-width: 760px) {
+    .shop-kinds { padding: 10px 12px 0; overflow-x: auto; }
+    .shop-kinds button { flex: none; padding: 8px 12px; font-size: 13px; }
+    .shop-hero-art.kind-plate { display: none; }
+}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import type { FriendUser, Group, UserProfile } from '../api';
 import Avatar from './Avatar';
+import { ProfileEffectOf } from '../decorations/Cosmetics';
 import VerifiedBadge from './VerifiedBadge';
 import { MessageIcon, UserPlusIcon, CloseIcon } from './Icons';
 import { bannerStyle } from '../banner';
@@ -88,6 +89,7 @@ export default function UserProfileModal({ userId, friends, groups, onClose, onM
                 ) : (
                     <>
                         <div className="up-left">
+                            <ProfileEffectOf name={p.username} />
                             <div className="up-banner" style={bannerStyle(p)} />
                             <div className="up-avatar">
                                 <Avatar name={p.username} color={p.avatarColor} src={p.avatarUrl ?? undefined} size="xl" zoomable status={p.online ? 'online' : 'offline'} />

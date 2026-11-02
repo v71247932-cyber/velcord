@@ -1,0 +1,33 @@
+.push-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background: #4752c4;
+    color: #fff;
+    font-size: 14px;
+    line-height: 1.35;
+}
+.push-banner span { flex: 1; min-width: 0; }
+.push-on {
+    flex: none;
+    background: #fff;
+    color: #2b2f7a;
+    border: 0;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+.push-x {
+    flex: none;
+    background: transparent;
+    border: 0;
+    color: #fff;
+    font-size: 22px;
+    line-height: 1;
+    padding: 4px 8px;
+    cursor: pointer;
+}

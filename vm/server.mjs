@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Readable } from 'node:stream';
 import Database from 'better-sqlite3';
+import webpush from 'web-push';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA = process.env.VELCORD_DATA || path.join(HERE, 'data');
@@ -122,6 +123,26 @@ const ASSETS = {
 // ---------- the worker itself ----------
 const worker = (await import(path.join(HERE, 'worker.mjs'))).default;
 const env = { DB, MEDIA, ASSETS, JWT_SECRET: process.env.JWT_SECRET, SYSTEM_KEY: process.env.SYSTEM_KEY };
+
+// ---------- Web Push (needs VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT in .env) ----------
+if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'https://velcord.scrisoricupovesti.ro', process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
+  env.VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
+  env.PUSH = (userIds, payload) => {
+    let subs = [];
+    try {
+      const marks = userIds.map(() => '?').join(',');
+      subs = sql.prepare(`SELECT endpoint, p256dh, auth FROM push_subs WHERE user_id IN (${marks})`).all(...userIds);
+    } catch (e) { console.error('push: no subscriptions table yet', e.message); return; }
+    for (const s of subs) {
+      webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify(payload), { TTL: 3600, urgency: 'high' })
+        .catch(e => {
+          if (e.statusCode === 404 || e.statusCode === 410) sql.prepare('DELETE FROM push_subs WHERE endpoint = ?').run(s.endpoint);
+          else console.error('push failed', e.statusCode || e.message);
+        });
+    }
+  };
+}
 if (!env.JWT_SECRET) throw new Error('JWT_SECRET is not set');
 
 const server = http.createServer(async (req, res) => {
