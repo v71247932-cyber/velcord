@@ -155,9 +155,6 @@ export default function ChatPanel({ friend }: ChatPanelProps) {
                         <div className="empty-icon">
                             <Avatar name={friend.username} color={friend.avatarColor} src={friend.avatarUrl} size="xl" />
                         </div>
-                        <p>
-                            This is the beginning of your history with <strong>{friend.username}</strong>.
-                        </p>
                     </div>
                 )}
                 {rendered}

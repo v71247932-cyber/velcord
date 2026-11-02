@@ -77,9 +77,14 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
   return derived === hashHex;
 }
 
-// --- Message retention: messages are kept 5 days, then deleted ---
+// --- Message retention: messages are kept 5 days, then deleted (except the last 5 of each conversation) ---
 const MESSAGE_TTL = 5 * 24 * 60 * 60;
-const NOT_EXPIRED = (col: string) => `${col} >= unixepoch() - ${MESSAGE_TTL}`;
+// The last KEEP_LAST messages of every conversation are kept even when they are older than 5 days.
+const KEEP_LAST = 5;
+const DM_NEWER = (a: string) => `(SELECT COUNT(*) FROM direct_messages k WHERE ((k.sender_id = ${a}.sender_id AND k.receiver_id = ${a}.receiver_id) OR (k.sender_id = ${a}.receiver_id AND k.receiver_id = ${a}.sender_id)) AND k.id > ${a}.id)`;
+const GROUP_NEWER = (a: string) => `(SELECT COUNT(*) FROM group_messages k WHERE k.group_id = ${a}.group_id AND k.channel_id IS ${a}.channel_id AND k.id > ${a}.id)`;
+const DM_VISIBLE = (a: string) => `(${a}.created_at >= unixepoch() - ${MESSAGE_TTL} OR ${DM_NEWER(a)} < ${KEEP_LAST})`;
+const GROUP_VISIBLE = (a: string) => `(${a}.created_at >= unixepoch() - ${MESSAGE_TTL} OR ${GROUP_NEWER(a)} < ${KEEP_LAST})`;
 let lastPurge = 0;
 
 async function purgeRemovedGifs(env: Env) {
@@ -94,8 +99,8 @@ async function purgeRemovedGifs(env: Env) {
 async function purgeOldMessages(env: Env) {
   await purgeRemovedGifs(env);
   await env.DB.batch([
-    env.DB.prepare(`DELETE FROM direct_messages WHERE created_at < unixepoch() - ${MESSAGE_TTL}`),
-    env.DB.prepare(`DELETE FROM group_messages WHERE created_at < unixepoch() - ${MESSAGE_TTL}`),
+    env.DB.prepare(`DELETE FROM direct_messages WHERE created_at < unixepoch() - ${MESSAGE_TTL} AND ${DM_NEWER('direct_messages')} >= ${KEEP_LAST}`),
+    env.DB.prepare(`DELETE FROM group_messages WHERE created_at < unixepoch() - ${MESSAGE_TTL} AND ${GROUP_NEWER('group_messages')} >= ${KEEP_LAST}`),
     env.DB.prepare('DELETE FROM uploads WHERE expires_at <= unixepoch()'),
     env.DB.prepare('DELETE FROM videos WHERE expires_at <= unixepoch()'), // the KV chunks expire by themselves
     env.DB.prepare('DELETE FROM typing WHERE at < (unixepoch() - 60) * 1000'),
@@ -573,10 +578,10 @@ async function handleGetFriends(request: Request, env: Env): Promise<Response> {
     env.DB.prepare('UPDATE users SET last_seen = unixepoch() WHERE id = ?').bind(me),
     env.DB.prepare(`
       SELECT u.id, u.username, u.avatar_color, ${AV('u')} as avatar_url, ${BANNER_COLS('u')}, u.last_seen, u.appear_offline, f.id as friendship_id,
-             (SELECT COUNT(*) FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL AND ${NOT_EXPIRED('dm.created_at')}) as unread,
-             (SELECT MAX(dm.id) FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL AND ${NOT_EXPIRED('dm.created_at')}) as last_unread_id,
-             (SELECT dm.content FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL AND ${NOT_EXPIRED('dm.created_at')} ORDER BY dm.id DESC LIMIT 1) as preview,
-             (SELECT MAX(dm.id) FROM direct_messages dm WHERE ((dm.sender_id = u.id AND dm.receiver_id = ?) OR (dm.sender_id = ? AND dm.receiver_id = u.id)) AND ${NOT_EXPIRED('dm.created_at')}) as last_msg_id
+             (SELECT COUNT(*) FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL AND ${DM_VISIBLE('dm')}) as unread,
+             (SELECT MAX(dm.id) FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL AND ${DM_VISIBLE('dm')}) as last_unread_id,
+             (SELECT dm.content FROM direct_messages dm WHERE dm.sender_id = u.id AND dm.receiver_id = ? AND dm.read_at IS NULL AND ${DM_VISIBLE('dm')} ORDER BY dm.id DESC LIMIT 1) as preview,
+             (SELECT MAX(dm.id) FROM direct_messages dm WHERE ((dm.sender_id = u.id AND dm.receiver_id = ?) OR (dm.sender_id = ? AND dm.receiver_id = u.id)) AND ${DM_VISIBLE('dm')}) as last_msg_id
       FROM friendships f
       JOIN users u ON u.id = CASE WHEN f.requester_id = ? THEN f.addressee_id ELSE f.requester_id END
       WHERE (f.requester_id = ? OR f.addressee_id = ?) AND f.status = 'accepted'
@@ -721,7 +726,7 @@ async function handleGetMessages(request: Request, env: Env, otherUserId: number
   const afterId = parseInt(afterParam || '0') || 0;
   const legacySince = afterParam === null ? (url.searchParams.get('since') || '0') : null; // older open tabs
 
-  const pair = `((dm.sender_id = ? AND dm.receiver_id = ?) OR (dm.sender_id = ? AND dm.receiver_id = ?)) AND ${NOT_EXPIRED('dm.created_at')}`;
+  const pair = `((dm.sender_id = ? AND dm.receiver_id = ?) OR (dm.sender_id = ? AND dm.receiver_id = ?)) AND ${DM_VISIBLE('dm')}`;
   const select = `SELECT dm.id, dm.content, dm.created_at, dm.delivered_at, dm.read_at,
            u.id as sender_id, u.username as sender_username, u.avatar_color as sender_avatar_color, ${AV('u')} as sender_avatar_url
     FROM direct_messages dm JOIN users u ON u.id = dm.sender_id`;
@@ -971,10 +976,10 @@ async function handleGetGroupMessages(request: Request, env: Env, groupId: numbe
            u.id as sender_id, u.username as sender_username, u.avatar_color as sender_avatar_color, ${AV('u')} as sender_avatar_url
     FROM group_messages gm JOIN users u ON u.id = gm.sender_id`;
   const messages = legacySince !== null
-    ? await env.DB.prepare(`${select} WHERE gm.group_id = ? AND ${inChannel} AND ${NOT_EXPIRED('gm.created_at')} AND gm.created_at > ? ORDER BY gm.created_at ASC, gm.id ASC LIMIT 100`).bind(groupId, ...chBind, legacySince).all()
+    ? await env.DB.prepare(`${select} WHERE gm.group_id = ? AND ${inChannel} AND ${GROUP_VISIBLE('gm')} AND gm.created_at > ? ORDER BY gm.created_at ASC, gm.id ASC LIMIT 100`).bind(groupId, ...chBind, legacySince).all()
     : initial
-      ? await env.DB.prepare(`${select} WHERE gm.group_id = ? AND ${inChannel} AND ${NOT_EXPIRED('gm.created_at')} ORDER BY gm.id DESC LIMIT ${PAGE_FIRST}`).bind(groupId, ...chBind).all()
-      : await env.DB.prepare(`${select} WHERE gm.group_id = ? AND ${inChannel} AND ${NOT_EXPIRED('gm.created_at')} AND gm.id > ? ORDER BY gm.id ASC LIMIT 100`).bind(groupId, ...chBind, afterId).all();
+      ? await env.DB.prepare(`${select} WHERE gm.group_id = ? AND ${inChannel} AND ${GROUP_VISIBLE('gm')} ORDER BY gm.id DESC LIMIT ${PAGE_FIRST}`).bind(groupId, ...chBind).all()
+      : await env.DB.prepare(`${select} WHERE gm.group_id = ? AND ${inChannel} AND ${GROUP_VISIBLE('gm')} AND gm.id > ? ORDER BY gm.id ASC LIMIT 100`).bind(groupId, ...chBind, afterId).all();
 
   const rows = initial ? [...messages.results].reverse() : messages.results;
   return json(rows.map((m: any) => ({
@@ -1390,9 +1395,9 @@ async function handleMessageStatus(request: Request, env: Env, otherUserId: numb
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
   const rows = await env.DB.prepare(`
-    SELECT id, delivered_at, read_at FROM direct_messages
-    WHERE sender_id = ? AND receiver_id = ? AND ${NOT_EXPIRED('created_at')}
-    ORDER BY id DESC LIMIT 100
+    SELECT dm.id, dm.delivered_at, dm.read_at FROM direct_messages dm
+    WHERE dm.sender_id = ? AND dm.receiver_id = ? AND ${DM_VISIBLE('dm')}
+    ORDER BY dm.id DESC LIMIT 100
   `).bind(auth.userId, otherUserId).all();
   return json(rows.results.map((r: any) => ({ id: r.id, deliveredAt: r.delivered_at, readAt: r.read_at })));
 }
