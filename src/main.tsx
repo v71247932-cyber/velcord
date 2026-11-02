@@ -24,3 +24,14 @@ createRoot(document.getElementById('root')!).render(
 startAutoUpdate()
 startEscapeClose()
 installAudioUnlock()
+
+// Phones report the page height wrongly while the browser bars or the keyboard move (the bottom bar of the menu
+// was cut off on an iPhone). The real visible height is measured and used for the layout.
+function setAppHeight() {
+  const h = window.visualViewport?.height ?? window.innerHeight;
+  document.documentElement.style.setProperty('--app-height', `${Math.round(h)}px`);
+}
+setAppHeight();
+window.addEventListener('resize', setAppHeight);
+window.addEventListener('orientationchange', () => setTimeout(setAppHeight, 200));
+window.visualViewport?.addEventListener('resize', setAppHeight);

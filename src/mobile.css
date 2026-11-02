@@ -117,3 +117,9 @@ body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
     padding-bottom: var(--sab);
   }
 }
+
+/* real visible height (set from script) so the bottom bars are never pushed below the screen */
+@media (max-width: 768px) {
+  .app-layout { height: var(--app-height, 100dvh); }
+  .nav-sidebar, .channel-sidebar { top: 0; bottom: auto; height: var(--app-height, 100dvh); }
+}
