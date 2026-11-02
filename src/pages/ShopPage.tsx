@@ -208,7 +208,7 @@ export default function ShopPage() {
                             {kind === 'deco' && <div className="shop-modal-art">{preview(open, 'modal')}</div>}
                             <h2>{open.name}</h2>
                             <p>{kind === 'deco' ? 'Shows around your avatar everywhere in Velcord.' : kind === 'effect' ? 'Plays over your profile card whenever somebody opens it.' : 'Shows behind your name in the friends, messages and member lists.'}</p>
-                            <div className="shop-tags">{[open.theme, ...open.tags].map(t => <span key={t}>{t}</span>)}</div>
+                            <div className="shop-tags">{[...new Set([open.theme, ...open.tags])].map(t => <span key={t}>{t}</span>)}</div>
                             <div className="shop-price">Free</div>
                             <button
                                 type="button"
