@@ -25,6 +25,7 @@ import GroupChannels from '../components/GroupChannels';
 import '../switch.css';
 import GroupMembersPanel from '../components/GroupMembersPanel';
 import PushBanner from '../components/PushBanner';
+import PushSettings from '../components/PushSettings';
 import ShopPage from './ShopPage';
 import { NameplateOf, ProfileEffectOf } from '../decorations/Cosmetics';
 import { startDecorationSync, stopDecorationSync } from '../decorations/store';
@@ -658,6 +659,7 @@ export default function MainLayout() {
                                 )}
                             </div>
 
+                            {!isDesktopApp() && <PushSettings />}
                             {!isDesktopApp() && isMobileDevice() && !isInstalledPwa() && (
                                 <div className="desktop-install">
                                     <div className="desktop-install-title">Install on your phone</div>

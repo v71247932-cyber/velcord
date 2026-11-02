@@ -70,6 +70,7 @@ export const api = {
     getCosmetics: () => request<{ effects: Record<string, string>; plates: Record<string, string> }>('GET', '/api/cosmetics'),
     setCosmetic: (kind: 'effect' | 'plate', id: string | null) => request<{ success: boolean; id: string | null }>('POST', '/api/me/cosmetic', { kind, id }),
     pushSubscribe: (sub: { endpoint: string; keys: { p256dh: string; auth: string } }) => request<{ ok: boolean }>('POST', '/api/push/subscribe', sub),
+    pushTest: () => request<{ devices: number }>('POST', '/api/push/test', {}),
     getGroupCommands: (groupId: number) => request<BotCommands[]>('GET', `/api/groups/${groupId}/commands`),
     kickGroupMember: (groupId: number, userId: number) => request<{ success: boolean }>('DELETE', `/api/groups/${groupId}/members/${userId}`),
 

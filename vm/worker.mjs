@@ -327,6 +327,13 @@ async function handlePushSubscribe(request, env) {
     ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth, ua = excluded.ua`).bind(endpoint, auth.userId, keys.p256dh, keys.auth, (request.headers.get("User-Agent") || "").slice(0, 200)).run();
   return json({ ok: true });
 }
+async function handlePushTest(request, env) {
+  const auth = await getAuth(request, env);
+  if (!auth) return err("Unauthorized", 401);
+  const subs = await env.DB.prepare("SELECT COUNT(*) AS n FROM push_subs WHERE user_id = ?").bind(auth.userId).first();
+  if (env.PUSH && subs.n > 0) env.PUSH([auth.userId], { title: "Velcord", body: "Test notification: it works.", tag: "test", url: "/app" });
+  return json({ devices: subs.n });
+}
 async function handlePushUnsubscribe(request, env) {
   const auth = await getAuth(request, env);
   if (!auth) return err("Unauthorized", 401);
@@ -1751,6 +1758,7 @@ var index_default = {
       if (path === "/api/push/key" && request.method === "GET") return await handlePushKey(request, env);
       if (path === "/api/push/subscribe" && request.method === "POST") return await handlePushSubscribe(request, env);
       if (path === "/api/push/unsubscribe" && request.method === "POST") return await handlePushUnsubscribe(request, env);
+      if (path === "/api/push/test" && request.method === "POST") return await handlePushTest(request, env);
       if (path === "/api/me" && request.method === "GET") return await handleMe(request, env);
       if (path === "/api/me" && request.method === "PATCH") return await handleUpdateProfile(request, env);
       const profileRoute = path.match(/^\/api\/users\/(\d+)\/(profile|note)$/);
