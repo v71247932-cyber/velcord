@@ -341,6 +341,22 @@ async function handlePushUnsubscribe(request, env) {
   if (endpoint) await env.DB.prepare("DELETE FROM push_subs WHERE endpoint = ? AND user_id = ?").bind(endpoint, auth.userId).run();
   return json({ ok: true });
 }
+async function handleSystemResetPassword(request, env) {
+  const key = request.headers.get("X-System-Key");
+  if (!env.SYSTEM_KEY || !key || key !== env.SYSTEM_KEY) return err("Not found", 404);
+  const { username, password } = await request.json();
+  const u = await systemUser(env, username);
+  if (!u) return err("No such user", 404);
+  if (isVerified(u.username)) return err("This account has no password", 403);
+  let pw = password;
+  if (!pw) {
+    const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    pw = Array.from(crypto.getRandomValues(new Uint8Array(12))).map((b) => chars[b % chars.length]).join("");
+  }
+  if (pw.length < 6) return err("Password must be at least 6 characters");
+  await env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?").bind(await hashPassword(pw), u.id).run();
+  return json({ username: u.username, password: pw });
+}
 async function handleSystemVideos(request, env) {
   const key = request.headers.get("X-System-Key");
   if (!env.SYSTEM_KEY || !key || key !== env.SYSTEM_KEY) return err("Not found", 404);
@@ -1704,6 +1720,7 @@ var index_default = {
       if (path === "/api/system/group" && request.method === "POST") return await handleSystemGroup(request, env);
       if (path === "/api/system/group-members" && request.method === "POST") return await handleSystemGroupMembers(request, env);
       if (path === "/api/system/groups" && request.method === "GET") return await handleSystemGroups(request, env);
+      if (path === "/api/system/reset-password" && request.method === "POST") return await handleSystemResetPassword(request, env);
       if (path === "/api/system/client-log" && request.method === "GET") return await handleSystemClientLog(request, env);
       if (path === "/api/system/bot-commands" && request.method === "POST") return await handleSystemBotCommands(request, env);
       if (path === "/api/decorations" && request.method === "GET") return await handleGetDecorations(request, env);
