@@ -38,6 +38,12 @@ export const api = {
     register: (username: string, password: string) =>
         request<{ success: boolean }>('POST', '/api/auth/register', { username, password }),
 
+    forgotPassword: (username: string) =>
+        request<{ ok: boolean; expiresIn: number }>('POST', '/api/auth/forgot', { username }),
+
+    resetPassword: (username: string, pin: string, password: string) =>
+        request<{ ok: boolean }>('POST', '/api/auth/reset', { username, pin, password }),
+
     login: (username: string, password: string) =>
         request<{ token: string; user: User }>('POST', '/api/auth/login', { username, password }),
 

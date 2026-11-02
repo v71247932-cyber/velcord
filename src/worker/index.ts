@@ -450,6 +450,75 @@ async function handleWebhook(request: Request, env: Env, token: string): Promise
   return json({ ok: true, id: msg.id }, 200);
 }
 
+// --- Forgotten password: a 4-digit PIN is sent to the approver (the Idk account) as a Velcord message and lasts 3 minutes.
+// The person asks Idk for it and uses it on the login page to set a new password. ---
+const RESET_APPROVER = 'Idk';
+const RESET_PIN_SECONDS = 180;
+const RESET_MAX_ATTEMPTS = 3;
+const RESET_MAX_REQUESTS_PER_HOUR = 5;
+
+async function pinHash(env: Env, userId: number, pin: string): Promise<string> {
+  const data = new TextEncoder().encode(`${env.JWT_SECRET}:pin:${userId}:${pin}`);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function handleForgotPassword(request: Request, env: Env): Promise<Response> {
+  const { username } = await request.json().catch(() => ({})) as { username?: string };
+  // the answer is the same whether the account exists or not, so names cannot be probed
+  const reply = () => json({ ok: true, expiresIn: RESET_PIN_SECONDS });
+  if (!username || typeof username !== 'string') return reply();
+  const user = await env.DB.prepare('SELECT id, username FROM users WHERE username = ?').bind(username.trim()).first() as { id: number; username: string } | null;
+  if (!user || isVerified(user.username)) return reply();
+  const approver = await env.DB.prepare('SELECT id FROM users WHERE username = ?').bind(RESET_APPROVER).first() as { id: number } | null;
+  if (!approver) return reply();
+
+  const now = Math.floor(Date.now() / 1000);
+  const prev = await env.DB.prepare('SELECT expires_at, asked_at, asked_count, window_start FROM password_resets WHERE user_id = ?').bind(user.id).first() as
+    { expires_at: number; asked_at: number; asked_count: number; window_start: number } | null;
+  let count = 1, windowStart = now;
+  if (prev) {
+    if (now - prev.asked_at < 20) return reply(); // pressed twice: keep the PIN that was already sent
+    if (now - prev.window_start < 3600) { count = prev.asked_count + 1; windowStart = prev.window_start; }
+    if (count > RESET_MAX_REQUESTS_PER_HOUR) return reply(); // too many tries for this account this hour
+  }
+  const pin = String(crypto.getRandomValues(new Uint32Array(1))[0] % 10000).padStart(4, '0');
+  await env.DB.prepare(`INSERT INTO password_resets (user_id, pin_hash, expires_at, attempts, asked_at, asked_count, window_start) VALUES (?, ?, ?, 0, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET pin_hash = excluded.pin_hash, expires_at = excluded.expires_at, attempts = 0, asked_at = excluded.asked_at, asked_count = excluded.asked_count, window_start = excluded.window_start`)
+    .bind(user.id, await pinHash(env, user.id, pin), now + RESET_PIN_SECONDS, now, count, windowStart).run();
+
+  const sys = await ensureSystemUser(env);
+  const pair = '(requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)';
+  const fr = await env.DB.prepare(`SELECT id, status FROM friendships WHERE ${pair}`).bind(sys, approver.id, approver.id, sys).first() as { id: number; status: string } | null;
+  if (!fr) await env.DB.prepare("INSERT INTO friendships (requester_id, addressee_id, status) VALUES (?, ?, 'accepted')").bind(sys, approver.id).run();
+  else if (fr.status !== 'accepted') await env.DB.prepare("UPDATE friendships SET status = 'accepted' WHERE id = ?").bind(fr.id).run();
+  const text = `🔑 ${user.username} vrea să-și schimbe parola.\nPIN: ${pin}\nPIN-ul e disponibil doar 3 minute. Dă-l persoanei doar dacă ești sigur că e ea.`;
+  await env.DB.prepare('INSERT INTO direct_messages (sender_id, receiver_id, content) VALUES (?, ?, ?)').bind(sys, approver.id, text).run();
+  await pushTo(env, [approver.id], { title: 'Velcord', body: `${user.username} vrea să-și schimbe parola. PIN: ${pin} (3 minute)`, tag: 'velcord-pin', url: '/app' });
+  return reply();
+}
+
+async function handleResetPassword(request: Request, env: Env): Promise<Response> {
+  const { username, pin, password } = await request.json().catch(() => ({})) as { username?: string; pin?: string; password?: string };
+  const bad = () => err('The PIN is wrong or has expired. Ask for a new one.', 400);
+  if (!username || !pin || !/^\d{4}$/.test(pin)) return bad();
+  if (!password || password.length < 6) return err('Password must be at least 6 characters');
+  const user = await env.DB.prepare('SELECT id FROM users WHERE username = ?').bind(username.trim()).first() as { id: number } | null;
+  if (!user) return bad();
+  const row = await env.DB.prepare('SELECT pin_hash, expires_at, attempts FROM password_resets WHERE user_id = ?').bind(user.id).first() as { pin_hash: string; expires_at: number; attempts: number } | null;
+  const now = Math.floor(Date.now() / 1000);
+  if (!row || row.expires_at < now || row.attempts >= RESET_MAX_ATTEMPTS) return bad();
+  if (row.pin_hash !== await pinHash(env, user.id, pin)) {
+    await env.DB.prepare('UPDATE password_resets SET attempts = attempts + 1 WHERE user_id = ?').bind(user.id).run();
+    return bad();
+  }
+  await env.DB.batch([
+    env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(await hashPassword(password), user.id),
+    env.DB.prepare('UPDATE password_resets SET expires_at = 0 WHERE user_id = ?').bind(user.id),
+  ]);
+  return json({ ok: true });
+}
+
 // Recent video clips (to diagnose playback problems); needs the secret key
 async function handleSystemVideos(request: Request, env: Env): Promise<Response> {
   const key = request.headers.get('X-System-Key');
@@ -1383,6 +1452,15 @@ function ensureSchema(env: Env): Promise<void> {
           label TEXT NOT NULL DEFAULT '',
           created_at INTEGER NOT NULL DEFAULT (unixepoch())
         )`),
+        env.DB.prepare(`CREATE TABLE IF NOT EXISTS password_resets (
+          user_id INTEGER PRIMARY KEY,
+          pin_hash TEXT NOT NULL,
+          expires_at INTEGER NOT NULL,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          asked_at INTEGER NOT NULL,
+          asked_count INTEGER NOT NULL DEFAULT 1,
+          window_start INTEGER NOT NULL
+        )`),
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS client_log (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           at INTEGER NOT NULL DEFAULT (unixepoch()),
@@ -2069,6 +2147,8 @@ export default {
       if (path === '/api/auth/register' && request.method === 'POST') return await handleRegister(request, env);
       if (path === '/api/auth/login' && request.method === 'POST') return await handleLogin(request, env);
       if (path === '/api/client-log' && request.method === 'POST') return await handleClientLog(request, env);
+      if (path === '/api/auth/forgot' && request.method === 'POST') return await handleForgotPassword(request, env);
+      if (path === '/api/auth/reset' && request.method === 'POST') return await handleResetPassword(request, env);
       const hookMatch = path.match(/^\/api\/hook\/([A-Za-z0-9_-]{24,80})$/);
       if (hookMatch && request.method === 'POST') return await handleWebhook(request, env, hookMatch[1]);
       if (path === '/api/push/key' && request.method === 'GET') return await handlePushKey(request, env);

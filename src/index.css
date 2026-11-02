@@ -2014,3 +2014,11 @@ html.desktop-app .viewer { top: 28px; }
 .status-pick small { color: var(--text-muted); font-size: 12px; }
 
 .auth-logo .logo-img { display: block; margin: 0 auto 6px; border-radius: 20px; box-shadow: 0 8px 24px rgba(0, 0, 0, .35); }
+
+/* forgotten password */
+.link-btn { display: block; width: 100%; margin-top: 12px; background: none; border: 0; color: var(--text-link, #8ea1ff); font-size: 14px; cursor: pointer; padding: 6px; touch-action: manipulation; }
+.link-btn:hover { text-decoration: underline; }
+.info-msg { background: rgba(35, 165, 90, .15); border: 1px solid rgba(35, 165, 90, .5); color: #c9f2d9; padding: 10px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
+.pin-timer { text-align: center; margin-bottom: 14px; font-size: 15px; color: var(--text-secondary, #b5bac1); }
+.pin-timer strong { font-size: 22px; font-variant-numeric: tabular-nums; color: #fff; }
+.pin-input { text-align: center; letter-spacing: 12px; font-size: 26px !important; font-variant-numeric: tabular-nums; }

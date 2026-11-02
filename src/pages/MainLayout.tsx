@@ -76,20 +76,6 @@ export default function MainLayout() {
     useEffect(() => {
         if (!showProfileMenu) { setDraftAvatar(undefined); setDraftProtect(undefined); setEditUsername(user?.username || ''); }
     }, [showProfileMenu]); // eslint-disable-line react-hooks/exhaustive-deps
-    const [switching, setSwitching] = useState(false);
-    // Moves to the linked account (for testing). A fresh page start makes sure nothing of the old account is left behind.
-    async function switchAccount() {
-        if (switching) return;
-        setSwitching(true);
-        try {
-            const r = await api.switchAccount();
-            localStorage.setItem('velcord_token', r.token);
-            window.location.reload();
-        } catch (e: any) {
-            setSwitching(false);
-            alert(e.message || 'Could not switch the account');
-        }
-    }
     const [showInfo, setShowInfo] = useState(false); // phone: profile / members panel
 
     // Notify about new direct messages (and show the unread total on the dock/taskbar icon)
@@ -500,13 +486,6 @@ export default function MainLayout() {
                             {deafened && <path d="M3 3l18 18" />}
                         </svg>
                     </button>
-                    {user?.canSwitch && (
-                        <button className="user-bar-btn" onClick={switchAccount} disabled={switching} title="Switch account" aria-label="Switch account">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M4 8h13l-3-3M20 16H7l3 3" />
-                            </svg>
-                        </button>
-                    )}
                     <button className="user-bar-btn user-bar-leave" onClick={logout} title="Leave">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />

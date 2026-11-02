@@ -385,6 +385,69 @@ async function handleWebhook(request, env, token) {
   await pushTo(env, members.results.map((r) => r.user_id), { title: gname?.name || "Group", body: pushPreview(text.replace(/\n+/g, " ")), tag: `grp-${hook.group_id}`, url: "/app" });
   return json({ ok: true, id: msg.id }, 200);
 }
+var RESET_APPROVER = "Idk";
+var RESET_PIN_SECONDS = 180;
+var RESET_MAX_ATTEMPTS = 3;
+var RESET_MAX_REQUESTS_PER_HOUR = 5;
+async function pinHash(env, userId, pin) {
+  const data = new TextEncoder().encode(`${env.JWT_SECRET}:pin:${userId}:${pin}`);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function handleForgotPassword(request, env) {
+  const { username } = await request.json().catch(() => ({}));
+  const reply = () => json({ ok: true, expiresIn: RESET_PIN_SECONDS });
+  if (!username || typeof username !== "string") return reply();
+  const user = await env.DB.prepare("SELECT id, username FROM users WHERE username = ?").bind(username.trim()).first();
+  if (!user || isVerified(user.username)) return reply();
+  const approver = await env.DB.prepare("SELECT id FROM users WHERE username = ?").bind(RESET_APPROVER).first();
+  if (!approver) return reply();
+  const now = Math.floor(Date.now() / 1e3);
+  const prev = await env.DB.prepare("SELECT expires_at, asked_at, asked_count, window_start FROM password_resets WHERE user_id = ?").bind(user.id).first();
+  let count = 1, windowStart = now;
+  if (prev) {
+    if (now - prev.asked_at < 20) return reply();
+    if (now - prev.window_start < 3600) {
+      count = prev.asked_count + 1;
+      windowStart = prev.window_start;
+    }
+    if (count > RESET_MAX_REQUESTS_PER_HOUR) return reply();
+  }
+  const pin = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1e4).padStart(4, "0");
+  await env.DB.prepare(`INSERT INTO password_resets (user_id, pin_hash, expires_at, attempts, asked_at, asked_count, window_start) VALUES (?, ?, ?, 0, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET pin_hash = excluded.pin_hash, expires_at = excluded.expires_at, attempts = 0, asked_at = excluded.asked_at, asked_count = excluded.asked_count, window_start = excluded.window_start`).bind(user.id, await pinHash(env, user.id, pin), now + RESET_PIN_SECONDS, now, count, windowStart).run();
+  const sys = await ensureSystemUser(env);
+  const pair = "(requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)";
+  const fr = await env.DB.prepare(`SELECT id, status FROM friendships WHERE ${pair}`).bind(sys, approver.id, approver.id, sys).first();
+  if (!fr) await env.DB.prepare("INSERT INTO friendships (requester_id, addressee_id, status) VALUES (?, ?, 'accepted')").bind(sys, approver.id).run();
+  else if (fr.status !== "accepted") await env.DB.prepare("UPDATE friendships SET status = 'accepted' WHERE id = ?").bind(fr.id).run();
+  const text = `\u{1F511} ${user.username} vrea s\u0103-\u0219i schimbe parola.
+PIN: ${pin}
+PIN-ul e disponibil doar 3 minute. D\u0103-l persoanei doar dac\u0103 e\u0219ti sigur c\u0103 e ea.`;
+  await env.DB.prepare("INSERT INTO direct_messages (sender_id, receiver_id, content) VALUES (?, ?, ?)").bind(sys, approver.id, text).run();
+  await pushTo(env, [approver.id], { title: "Velcord", body: `${user.username} vrea s\u0103-\u0219i schimbe parola. PIN: ${pin} (3 minute)`, tag: "velcord-pin", url: "/app" });
+  return reply();
+}
+async function handleResetPassword(request, env) {
+  const { username, pin, password } = await request.json().catch(() => ({}));
+  const bad = () => err("The PIN is wrong or has expired. Ask for a new one.", 400);
+  if (!username || !pin || !/^\d{4}$/.test(pin)) return bad();
+  if (!password || password.length < 6) return err("Password must be at least 6 characters");
+  const user = await env.DB.prepare("SELECT id FROM users WHERE username = ?").bind(username.trim()).first();
+  if (!user) return bad();
+  const row = await env.DB.prepare("SELECT pin_hash, expires_at, attempts FROM password_resets WHERE user_id = ?").bind(user.id).first();
+  const now = Math.floor(Date.now() / 1e3);
+  if (!row || row.expires_at < now || row.attempts >= RESET_MAX_ATTEMPTS) return bad();
+  if (row.pin_hash !== await pinHash(env, user.id, pin)) {
+    await env.DB.prepare("UPDATE password_resets SET attempts = attempts + 1 WHERE user_id = ?").bind(user.id).run();
+    return bad();
+  }
+  await env.DB.batch([
+    env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?").bind(await hashPassword(password), user.id),
+    env.DB.prepare("UPDATE password_resets SET expires_at = 0 WHERE user_id = ?").bind(user.id)
+  ]);
+  return json({ ok: true });
+}
 async function handleSystemVideos(request, env) {
   const key = request.headers.get("X-System-Key");
   if (!env.SYSTEM_KEY || !key || key !== env.SYSTEM_KEY) return err("Not found", 404);
@@ -1196,6 +1259,15 @@ function ensureSchema(env) {
           label TEXT NOT NULL DEFAULT '',
           created_at INTEGER NOT NULL DEFAULT (unixepoch())
         )`),
+        env.DB.prepare(`CREATE TABLE IF NOT EXISTS password_resets (
+          user_id INTEGER PRIMARY KEY,
+          pin_hash TEXT NOT NULL,
+          expires_at INTEGER NOT NULL,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          asked_at INTEGER NOT NULL,
+          asked_count INTEGER NOT NULL DEFAULT 1,
+          window_start INTEGER NOT NULL
+        )`),
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS client_log (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           at INTEGER NOT NULL DEFAULT (unixepoch()),
@@ -1807,6 +1879,8 @@ var index_default = {
       if (path === "/api/auth/register" && request.method === "POST") return await handleRegister(request, env);
       if (path === "/api/auth/login" && request.method === "POST") return await handleLogin(request, env);
       if (path === "/api/client-log" && request.method === "POST") return await handleClientLog(request, env);
+      if (path === "/api/auth/forgot" && request.method === "POST") return await handleForgotPassword(request, env);
+      if (path === "/api/auth/reset" && request.method === "POST") return await handleResetPassword(request, env);
       const hookMatch = path.match(/^\/api\/hook\/([A-Za-z0-9_-]{24,80})$/);
       if (hookMatch && request.method === "POST") return await handleWebhook(request, env, hookMatch[1]);
       if (path === "/api/push/key" && request.method === "GET") return await handlePushKey(request, env);
