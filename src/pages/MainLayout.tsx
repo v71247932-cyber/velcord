@@ -142,19 +142,19 @@ export default function MainLayout() {
     }, []);
 
     function openDM(friend: FriendUser) {
+        setSidebarOpen(false); // first, so the menu always closes on a phone
         setShowInfo(false);
         setView({ type: 'dm', friend });
         requestChatFocus();
         setTimeout(load, 1500); // the chat marks messages as seen, so refresh the unread list soon after
-        setSidebarOpen(false); // Close on mobile
     }
 
     function openGroup(group: Group) {
+        setSidebarOpen(false); // first, so the menu always closes on a phone
         setShowInfo(false);
         setShowGroupSettings(false);
         setView({ type: 'group', group });
         requestChatFocus();
-        setSidebarOpen(false); // Close on mobile
     }
 
     async function handleDeleteGroup(e: React.MouseEvent, group: Group) {

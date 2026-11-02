@@ -263,6 +263,22 @@ async function handleSetDecoration(request, env) {
   await env.DB.prepare("INSERT INTO user_decorations (user_id, deco) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET deco = excluded.deco").bind(auth.userId, id).run();
   return json({ success: true, id });
 }
+async function handleClientLog(request, env) {
+  const body = await request.json().catch(() => null);
+  if (!body) return err("Bad request");
+  const ua = (request.headers.get("User-Agent") || "").slice(0, 200);
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO client_log (ua, kind, msg) VALUES (?, ?, ?)").bind(ua, String(body.kind || "").slice(0, 30), String(body.msg || "").slice(0, 600)),
+    env.DB.prepare("DELETE FROM client_log WHERE id <= (SELECT MAX(id) FROM client_log) - 300")
+  ]);
+  return json({ ok: true });
+}
+async function handleSystemClientLog(request, env) {
+  const key = request.headers.get("X-System-Key");
+  if (!env.SYSTEM_KEY || !key || key !== env.SYSTEM_KEY) return err("Not found", 404);
+  const rows = await env.DB.prepare("SELECT id, at, ua, kind, msg FROM client_log ORDER BY id DESC LIMIT 120").all();
+  return json(rows.results);
+}
 async function handleSystemVideos(request, env) {
   const key = request.headers.get("X-System-Key");
   if (!env.SYSTEM_KEY || !key || key !== env.SYSTEM_KEY) return err("Not found", 404);
@@ -1052,6 +1068,13 @@ function ensureSchema(env) {
           PRIMARY KEY (user_id, linked_id)
         )`),
         env.DB.prepare("CREATE TABLE IF NOT EXISTS user_decorations (user_id INTEGER PRIMARY KEY, deco TEXT NOT NULL)"),
+        env.DB.prepare(`CREATE TABLE IF NOT EXISTS client_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          at INTEGER NOT NULL DEFAULT (unixepoch()),
+          ua TEXT NOT NULL DEFAULT '',
+          kind TEXT NOT NULL DEFAULT '',
+          msg TEXT NOT NULL DEFAULT ''
+        )`),
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS bot_commands (
           user_id INTEGER NOT NULL,
           name TEXT NOT NULL,
@@ -1601,6 +1624,7 @@ var index_default = {
       if (path === "/api/system/group" && request.method === "POST") return await handleSystemGroup(request, env);
       if (path === "/api/system/group-members" && request.method === "POST") return await handleSystemGroupMembers(request, env);
       if (path === "/api/system/groups" && request.method === "GET") return await handleSystemGroups(request, env);
+      if (path === "/api/system/client-log" && request.method === "GET") return await handleSystemClientLog(request, env);
       if (path === "/api/system/bot-commands" && request.method === "POST") return await handleSystemBotCommands(request, env);
       if (path === "/api/decorations" && request.method === "GET") return await handleGetDecorations(request, env);
       if (path === "/api/me/decoration" && request.method === "POST") return await handleSetDecoration(request, env);
@@ -1649,6 +1673,7 @@ var index_default = {
       if (statusMatch && request.method === "GET") return await handleMessageStatus(request, env, parseInt(statusMatch[1]));
       if (path === "/api/auth/register" && request.method === "POST") return await handleRegister(request, env);
       if (path === "/api/auth/login" && request.method === "POST") return await handleLogin(request, env);
+      if (path === "/api/client-log" && request.method === "POST") return await handleClientLog(request, env);
       if (path === "/api/me" && request.method === "GET") return await handleMe(request, env);
       if (path === "/api/me" && request.method === "PATCH") return await handleUpdateProfile(request, env);
       const profileRoute = path.match(/^\/api\/users\/(\d+)\/(profile|note)$/);

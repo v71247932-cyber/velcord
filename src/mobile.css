@@ -123,3 +123,6 @@ body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
   .app-layout { height: var(--app-height, 100dvh); }
   .nav-sidebar, .channel-sidebar { top: 0; bottom: auto; height: var(--app-height, 100dvh); }
 }
+
+/* taps on the menu rows: no double-tap delay, and iOS treats them as clickable */
+.dm-item, .chan-row, .friends-row, .nav-icon-btn, .hamburger-btn, .sidebar-overlay { cursor: pointer; touch-action: manipulation; }

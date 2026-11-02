@@ -309,6 +309,24 @@ async function handleSetDecoration(request: Request, env: Env): Promise<Response
   return json({ success: true, id });
 }
 
+// --- Errors and taps reported by the page itself (to find problems that only happen on one phone) ---
+async function handleClientLog(request: Request, env: Env): Promise<Response> {
+  const body = await request.json().catch(() => null) as { kind?: string; msg?: string } | null;
+  if (!body) return err('Bad request');
+  const ua = (request.headers.get('User-Agent') || '').slice(0, 200);
+  await env.DB.batch([
+    env.DB.prepare('INSERT INTO client_log (ua, kind, msg) VALUES (?, ?, ?)').bind(ua, String(body.kind || '').slice(0, 30), String(body.msg || '').slice(0, 600)),
+    env.DB.prepare('DELETE FROM client_log WHERE id <= (SELECT MAX(id) FROM client_log) - 300'),
+  ]);
+  return json({ ok: true });
+}
+async function handleSystemClientLog(request: Request, env: Env): Promise<Response> {
+  const key = request.headers.get('X-System-Key');
+  if (!env.SYSTEM_KEY || !key || key !== env.SYSTEM_KEY) return err('Not found', 404);
+  const rows = await env.DB.prepare('SELECT id, at, ua, kind, msg FROM client_log ORDER BY id DESC LIMIT 120').all();
+  return json(rows.results);
+}
+
 // Recent video clips (to diagnose playback problems); needs the secret key
 async function handleSystemVideos(request: Request, env: Env): Promise<Response> {
   const key = request.headers.get('X-System-Key');
@@ -1220,6 +1238,13 @@ function ensureSchema(env: Env): Promise<void> {
           PRIMARY KEY (user_id, linked_id)
         )`),
         env.DB.prepare('CREATE TABLE IF NOT EXISTS user_decorations (user_id INTEGER PRIMARY KEY, deco TEXT NOT NULL)'),
+        env.DB.prepare(`CREATE TABLE IF NOT EXISTS client_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          at INTEGER NOT NULL DEFAULT (unixepoch()),
+          ua TEXT NOT NULL DEFAULT '',
+          kind TEXT NOT NULL DEFAULT '',
+          msg TEXT NOT NULL DEFAULT ''
+        )`),
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS bot_commands (
           user_id INTEGER NOT NULL,
           name TEXT NOT NULL,
@@ -1832,6 +1857,7 @@ export default {
       if (path === '/api/system/group' && request.method === 'POST') return await handleSystemGroup(request, env);
       if (path === '/api/system/group-members' && request.method === 'POST') return await handleSystemGroupMembers(request, env);
       if (path === '/api/system/groups' && request.method === 'GET') return await handleSystemGroups(request, env);
+      if (path === '/api/system/client-log' && request.method === 'GET') return await handleSystemClientLog(request, env);
       if (path === '/api/system/bot-commands' && request.method === 'POST') return await handleSystemBotCommands(request, env);
       if (path === '/api/decorations' && request.method === 'GET') return await handleGetDecorations(request, env);
       if (path === '/api/me/decoration' && request.method === 'POST') return await handleSetDecoration(request, env);
@@ -1892,6 +1918,7 @@ export default {
       // Auth routes
       if (path === '/api/auth/register' && request.method === 'POST') return await handleRegister(request, env);
       if (path === '/api/auth/login' && request.method === 'POST') return await handleLogin(request, env);
+      if (path === '/api/client-log' && request.method === 'POST') return await handleClientLog(request, env);
       // Profile/User routes
       if (path === '/api/me' && request.method === 'GET') return await handleMe(request, env);
       if (path === '/api/me' && request.method === 'PATCH') return await handleUpdateProfile(request, env);
