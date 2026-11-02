@@ -142,6 +142,22 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
         });
     }
   };
+
+  // A web app cannot make the phone ring like a real call. The nearest thing: repeat the "Incoming call"
+  // notification every 5 seconds (each one plays the notification sound) until the call is answered, refused or hung up.
+  env.RING = (calleeId, callerId, callerName) => {
+    const started = Math.floor(Date.now() / 1000);
+    let n = 0;
+    const iv = setInterval(() => {
+      n += 1;
+      try {
+        const over = sql.prepare("SELECT 1 FROM call_signals WHERE ((from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?)) AND type IN ('accept', 'reject', 'hangup') AND created_at >= ? LIMIT 1").get(callerId, calleeId, calleeId, callerId, started);
+        const away = sql.prepare('SELECT 1 FROM users WHERE id = ? AND (last_seen IS NULL OR last_seen < unixepoch() - 25)').get(calleeId);
+        if (over || !away || n > 6) return clearInterval(iv);
+        env.PUSH([calleeId], { title: callerName, body: 'Incoming call', tag: `call-${callerId}`, url: '/app' });
+      } catch { clearInterval(iv); }
+    }, 5000);
+  };
 }
 if (!env.JWT_SECRET) throw new Error('JWT_SECRET is not set');
 

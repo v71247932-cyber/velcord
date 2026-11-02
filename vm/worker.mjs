@@ -1630,6 +1630,7 @@ async function handleCallSignal(request, env) {
   if (await isSystemUserId(env, to)) return err("You cannot call Velcord", 403);
   await env.DB.prepare("INSERT INTO call_signals (from_id, to_id, type, payload) VALUES (?, ?, ?, ?)").bind(auth.userId, to, type, payload ?? null).run();
   if (type === "invite") await pushTo(env, [to], { title: auth.username, body: "Incoming call", tag: `call-${auth.userId}`, url: "/app" });
+  if (type === "invite") env.RING?.(to, auth.userId, auth.username);
   return json({ success: true }, 201);
 }
 async function handleCallPoll(request, env) {

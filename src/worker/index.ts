@@ -13,6 +13,8 @@ export interface Env {
   /** Web Push: public key for the browsers, and the function (given by the Node server) that sends one */
   VAPID_PUBLIC_KEY?: string;
   PUSH?: (userIds: number[], payload: { title: string; body: string; tag: string; url: string }) => void;
+  /** Node server only: keeps sending the "Incoming call" notification every few seconds while the call is not answered */
+  RING?: (calleeId: number, callerId: number, callerName: string) => void;
 }
 
 // --- Simple JWT implementation using Web Crypto ---
@@ -1862,6 +1864,7 @@ async function handleCallSignal(request: Request, env: Env): Promise<Response> {
   await env.DB.prepare('INSERT INTO call_signals (from_id, to_id, type, payload) VALUES (?, ?, ?, ?)')
     .bind(auth.userId, to, type, payload ?? null).run();
   if (type === 'invite') await pushTo(env, [to], { title: auth.username, body: 'Incoming call', tag: `call-${auth.userId}`, url: '/app' });
+  if (type === 'invite') env.RING?.(to, auth.userId, auth.username);
   return json({ success: true }, 201);
 }
 
