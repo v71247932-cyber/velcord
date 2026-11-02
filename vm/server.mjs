@@ -143,10 +143,9 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
     }
   };
 
-  // A web app cannot make the phone ring like a real call. The nearest thing: repeat the "Incoming call"
-  // notification every 5 seconds (each one plays the notification sound) until the call is answered, refused or
-  // hung up. If it was never answered, one "Missed call" notification replaces it and stays in the notification list
-  // until the person swipes it away.
+  // A web app cannot make the phone ring like a real call, so the person gets ONE "Incoming call" notification
+  // (sent by the call route). When the call ends without being answered (the caller hangs up, or 60 seconds pass),
+  // a "Missed call from ..." notification replaces it and stays in the list until the person swipes it away.
   env.RING = (calleeId, callerId, callerName) => {
     const started = Math.floor(Date.now() / 1000);
     let n = 0;
@@ -158,14 +157,12 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
         const hungUp = sig.some(x => x.type === 'hangup' && x.from_id === callerId);
         const away = sql.prepare('SELECT 1 FROM users WHERE id = ? AND (last_seen IS NULL OR last_seen < unixepoch() - 25)').get(calleeId);
         if (handled || !away) return clearInterval(iv);
-        if (hungUp || n > 6) {
+        if (hungUp || n >= 30) {
           clearInterval(iv);
-          env.PUSH([calleeId], { title: callerName, body: 'Missed call', tag: `missed-${callerId}`, url: '/app', replaces: `call-${callerId}` });
-          return;
+          env.PUSH([calleeId], { title: 'Velcord', body: `Missed call from ${callerName}`, tag: `missed-${callerId}`, url: '/app', replaces: `call-${callerId}` });
         }
-        env.PUSH([calleeId], { title: callerName, body: 'Incoming call', tag: `call-${callerId}`, url: '/app' });
       } catch { clearInterval(iv); }
-    }, 5000);
+    }, 2000);
   };
 }
 if (!env.JWT_SECRET) throw new Error('JWT_SECRET is not set');
