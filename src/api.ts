@@ -65,6 +65,7 @@ export const api = {
     defaultVoice: (groupId: number) => request<{ id: number; name: string }>('POST', `/api/groups/${groupId}/default-voice`, {}),
 
     getGroupMembers: (groupId: number) => request<GroupMember[]>('GET', `/api/groups/${groupId}/members`),
+    kickGroupMember: (groupId: number, userId: number) => request<{ success: boolean }>('DELETE', `/api/groups/${groupId}/members/${userId}`),
 
     updateGroup: (groupId: number, patch: { name?: string; avatarUrl?: string | null; bannerUrl?: string | null; bannerColors?: [string, string] | null }) =>
         request<{ success: boolean }>('PATCH', `/api/groups/${groupId}`, patch),

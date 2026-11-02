@@ -41,3 +41,8 @@
 .gset-foot { display: flex; justify-content: flex-end; padding-top: 6px; }
 .gset-close { position: absolute; top: 10px; right: 10px; width: 32px; height: 32px; border-radius: 50%; border: none; background: rgba(0,0,0,0.35); color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .gset-close:hover { background: rgba(0,0,0,0.55); }
+
+.member-kick{margin-left:auto;background:transparent;border:1px solid #ed4245;color:#ed4245;border-radius:4px;padding:2px 8px;font-size:12px;cursor:pointer;opacity:0}
+.member-row:hover .member-kick,.member-kick:focus{opacity:1}
+.member-kick:hover{background:#ed4245;color:#fff}
+@media (hover:none){.member-kick{opacity:1}}

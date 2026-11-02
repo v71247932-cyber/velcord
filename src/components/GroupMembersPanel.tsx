@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import { useAuth } from '../AuthContext';
 import type { FriendUser, Group, GroupMember } from '../api';
 import '../group.css';
 import Avatar from './Avatar';
@@ -13,6 +14,7 @@ interface Props {
 }
 
 export default function GroupMembersPanel({ group, friends, onGroupChanged }: Props) {
+    const { user } = useAuth();
     const [members, setMembers] = useState<GroupMember[]>([]);
     const [showAdd, setShowAdd] = useState(false);
     const [selected, setSelected] = useState<number[]>([]);
@@ -57,11 +59,25 @@ export default function GroupMembersPanel({ group, friends, onGroupChanged }: Pr
         }
     }
 
+    async function kick(m: GroupMember) {
+        if (!confirm(`Remove ${m.username} from ${group.name}?`)) return;
+        try {
+            await api.kickGroupMember(group.id, m.id);
+            await load();
+            onGroupChanged();
+        } catch (e: any) {
+            alert(e.message);
+        }
+    }
+
+    const iAmOwner = user?.id === group.ownerId;
+
     const row = (m: GroupMember) => (
         <div key={m.id} className={`member-row ${m.online ? '' : 'member-offline'}`}>
             <Avatar name={m.username} color={m.avatarColor} src={m.avatarUrl} size="sm" zoomable userId={m.id} status={m.online ? 'online' : 'offline'} />
             <span className="member-name">{m.username}{(m.verified || m.tick) && <VerifiedBadge size={14} />}</span>
             {m.isOwner && <span className="member-owner" title="Group owner"><CrownIcon size={13} /> Owner</span>}
+            {iAmOwner && !m.isOwner && <button type="button" className="member-kick" onClick={() => kick(m)} title={`Remove ${m.username}`}>Kick</button>}
         </div>
     );
 

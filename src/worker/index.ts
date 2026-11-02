@@ -187,6 +187,72 @@ async function handleSystemUnfriend(request: Request, env: Env): Promise<Respons
   return json({ removed: r.meta.changes });
 }
 
+// The owner can remove a member from the group
+async function handleKickGroupMember(request: Request, env: Env, groupId: number, userId: number): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const group = await env.DB.prepare('SELECT id, owner_id FROM groups WHERE id = ?').bind(groupId).first() as { id: number; owner_id: number } | null;
+  if (!group) return err('Group not found', 404);
+  if (group.owner_id !== auth.userId) return err('Only the owner can remove members', 403);
+  if (userId === group.owner_id) return err('The owner cannot be removed', 400);
+  const r = await env.DB.prepare('DELETE FROM group_members WHERE group_id = ? AND user_id = ?').bind(groupId, userId).run();
+  return json({ success: true, removed: r.meta.changes });
+}
+
+// --- Groups managed with the secret key (for the assistant): create a group with only one person, add, kick ---
+async function systemUser(env: Env, name: string | undefined) {
+  if (!name) return null;
+  return await env.DB.prepare('SELECT id, username FROM users WHERE username = ?').bind(name).first() as { id: number; username: string } | null;
+}
+async function handleSystemGroup(request: Request, env: Env): Promise<Response> {
+  const key = request.headers.get('X-System-Key');
+  if (!env.SYSTEM_KEY || !key || key !== env.SYSTEM_KEY) return err('Not found', 404);
+  const { name, owner, members } = await request.json() as { name?: string; owner?: string; members?: string[] };
+  if (!name?.trim()) return err('Group name is required');
+  const o = await systemUser(env, owner);
+  if (!o) return err('No such owner', 404);
+  const ids = [o.id];
+  for (const m of members || []) {
+    const u = await systemUser(env, m);
+    if (!u) return err(`No such user: ${m}`, 404);
+    if (!ids.includes(u.id)) ids.push(u.id);
+  }
+  const g = await env.DB.prepare('INSERT INTO groups (name, owner_id) VALUES (?, ?) RETURNING id').bind(name.trim(), o.id).first() as { id: number };
+  const stmt = env.DB.prepare('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)');
+  await env.DB.batch(ids.map((id) => stmt.bind(g.id, id)));
+  return json({ id: g.id, name: name.trim(), owner: o.username, members: ids.length }, 201);
+}
+async function handleSystemGroupMembers(request: Request, env: Env): Promise<Response> {
+  const key = request.headers.get('X-System-Key');
+  if (!env.SYSTEM_KEY || !key || key !== env.SYSTEM_KEY) return err('Not found', 404);
+  const { groupId, add, kick } = await request.json() as { groupId?: number; add?: string[]; kick?: string[] };
+  const g = await env.DB.prepare('SELECT id, owner_id FROM groups WHERE id = ?').bind(groupId).first() as { id: number; owner_id: number } | null;
+  if (!g) return err('Group not found', 404);
+  let added = 0, removed = 0;
+  for (const name of add || []) {
+    const u = await systemUser(env, name);
+    if (!u) return err(`No such user: ${name}`, 404);
+    const r = await env.DB.prepare('INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)').bind(g.id, u.id).run();
+    added += r.meta.changes;
+  }
+  for (const name of kick || []) {
+    const u = await systemUser(env, name);
+    if (!u) return err(`No such user: ${name}`, 404);
+    if (u.id === g.owner_id) return err('The owner cannot be removed', 400);
+    const r = await env.DB.prepare('DELETE FROM group_members WHERE group_id = ? AND user_id = ?').bind(g.id, u.id).run();
+    removed += r.meta.changes;
+  }
+  return json({ added, removed });
+}
+async function handleSystemGroups(request: Request, env: Env): Promise<Response> {
+  const key = request.headers.get('X-System-Key');
+  if (!env.SYSTEM_KEY || !key || key !== env.SYSTEM_KEY) return err('Not found', 404);
+  const rows = await env.DB.prepare(`SELECT g.id, g.name, o.username AS owner,
+      (SELECT group_concat(u.username, ', ') FROM group_members gm JOIN users u ON u.id = gm.user_id WHERE gm.group_id = g.id) AS members
+    FROM groups g JOIN users o ON o.id = g.owner_id ORDER BY g.id`).all();
+  return json(rows.results);
+}
+
 // Recent video clips (to diagnose playback problems); needs the secret key
 async function handleSystemVideos(request: Request, env: Env): Promise<Response> {
   const key = request.headers.get('X-System-Key');
@@ -801,10 +867,11 @@ async function handleCreateGroup(request: Request, env: Env): Promise<Response> 
   if (!auth) return err('Unauthorized', 401);
   const { name, members } = await request.json() as { name: string; members: number[] };
   if (!name?.trim()) return err('Group name is required');
-  if (!members || !Array.isArray(members) || members.length === 0) return err('Select at least one friend');
+  if (members !== undefined && !Array.isArray(members)) return err('Invalid members');
+  const memberIds = Array.isArray(members) ? members : [];
 
   // Verify all members are friends of the creator
-  for (const memberId of members) {
+  for (const memberId of memberIds) {
     const friendship = await env.DB.prepare(
       "SELECT id FROM friendships WHERE status = 'accepted' AND ((requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?))"
     ).bind(auth.userId, memberId, memberId, auth.userId).first();
@@ -816,7 +883,7 @@ async function handleCreateGroup(request: Request, env: Env): Promise<Response> 
   ).bind(name.trim(), auth.userId).first() as { id: number };
 
   // Add owner and members to group_members
-  const allMembers = [auth.userId, ...members];
+  const allMembers = [auth.userId, ...memberIds];
   const stmt = env.DB.prepare('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)');
   await env.DB.batch(allMembers.map(id => stmt.bind(res.id, id)));
 
@@ -1699,6 +1766,9 @@ export default {
       if (path === '/api/system/notify' && request.method === 'POST') return await handleSystemNotify(request, env);
       if (path === '/api/system/status' && request.method === 'POST') return await handleSystemStatus(request, env);
       if (path === '/api/system/unfriend' && request.method === 'POST') return await handleSystemUnfriend(request, env);
+      if (path === '/api/system/group' && request.method === 'POST') return await handleSystemGroup(request, env);
+      if (path === '/api/system/group-members' && request.method === 'POST') return await handleSystemGroupMembers(request, env);
+      if (path === '/api/system/groups' && request.method === 'GET') return await handleSystemGroups(request, env);
       if (path === '/api/system/videos' && request.method === 'POST') return await handleSystemVideos(request, env);
       if (path === '/api/system/gif-protect' && request.method === 'POST') return await handleSystemGifProtect(request, env);
       if (path === '/api/system/test-account' && request.method === 'POST') return await handleSystemTestAccount(request, env);
@@ -1782,6 +1852,8 @@ export default {
       const groupAddMatch = path.match(/^\/api\/groups\/(\d+)\/members$/);
       if (groupAddMatch && request.method === 'POST') return await handleAddGroupMembers(request, env, parseInt(groupAddMatch[1]));
 
+      const groupKickMatch = path.match(/^\/api\/groups\/(\d+)\/members\/(\d+)$/);
+      if (groupKickMatch && request.method === 'DELETE') return await handleKickGroupMember(request, env, parseInt(groupKickMatch[1]), parseInt(groupKickMatch[2]));
       const groupMembersMatch = path.match(/^\/api\/groups\/(\d+)\/members$/);
       if (groupMembersMatch && request.method === 'GET') return await handleGroupMembers(request, env, parseInt(groupMembersMatch[1]));
 

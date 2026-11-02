@@ -23,7 +23,6 @@ export default function CreateGroupModal({ friends, onClose, onCreated }: Create
 
     const handleCreate = async () => {
         if (!name.trim()) return setError('Enter a group name');
-        if (selected.length === 0) return setError('Select at least one friend');
 
         setLoading(true);
         setError('');
@@ -89,7 +88,7 @@ export default function CreateGroupModal({ friends, onClose, onCreated }: Create
                     <button
                         className="btn-primary"
                         onClick={handleCreate}
-                        disabled={loading || friends.length === 0}
+                        disabled={loading}
                     >
                         {loading ? 'Creating...' : 'Create Group'}
                     </button>
