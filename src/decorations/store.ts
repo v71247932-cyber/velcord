@@ -3,13 +3,17 @@ import { api } from '../api';
 import catalog from './catalog.json';
 import effectsCatalog from './effects-catalog.json';
 import platesCatalog from './plates-catalog.json';
+import combosCatalog from './combos.json';
 
 export interface Deco { id: string; name: string; theme: string; tags: string[] }
 export const DECOS = catalog as Deco[];
 export const DECO_BY_ID = new Map(DECOS.map(d => [d.id, d]));
 export const EFFECTS = effectsCatalog as Deco[];
 export const PLATES = platesCatalog as Deco[];
-export type ItemKind = 'deco' | 'effect' | 'plate';
+export type ItemKind = 'deco' | 'effect' | 'plate' | 'combo';
+/** a ready-made set: one avatar decoration, one nameplate and one profile effect, picked to go together */
+export interface Combo extends Deco { deco: string; plate: string; effect: string }
+export const COMBOS = combosCatalog as Combo[];
 
 // username (lower case) -> decoration id, for everybody who wears one
 let byName: Record<string, string> = {};
@@ -43,6 +47,7 @@ export async function refreshCosmetics() {
     } catch { /* noop */ }
 }
 export function setLocalItem(kind: ItemKind, username: string, id: string | null) {
+    if (kind === 'combo') return;
     if (kind === 'deco') { setLocalDecoration(username, id); return; }
     const map = kind === 'effect' ? { ...effectByName } : { ...plateByName };
     if (id) map[username.toLowerCase()] = id; else delete map[username.toLowerCase()];

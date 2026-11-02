@@ -3,17 +3,19 @@ import { api } from '../api';
 import { useAuth } from '../AuthContext';
 import Avatar from '../components/Avatar';
 import { Nameplate, ProfileEffect } from '../decorations/Cosmetics';
-import { DECOS, EFFECTS, PLATES, setLocalItem, useDecorationOf, useEffectOf, usePlateOf } from '../decorations/store';
-import type { Deco, ItemKind } from '../decorations/store';
+import { COMBOS, DECOS, EFFECTS, PLATES, setLocalItem, useDecorationOf, useEffectOf, usePlateOf } from '../decorations/store';
+import type { Combo, Deco, ItemKind } from '../decorations/store';
 import './shop.css';
 
 const PAGE = 30;
-const CATALOG: Record<ItemKind, Deco[]> = { deco: DECOS, effect: EFFECTS, plate: PLATES };
-const TAB_LABEL: Record<ItemKind, string> = { deco: 'Avatar decorations', effect: 'Profile effects', plate: 'Nameplates' };
+const CATALOG: Record<ItemKind, Deco[]> = { deco: DECOS, effect: EFFECTS, plate: PLATES, combo: COMBOS };
+const TAB_LABEL: Record<ItemKind, string> = { deco: 'Avatar decorations', effect: 'Profile effects', plate: 'Nameplates', combo: 'Combos' };
+const KINDS: ItemKind[] = ['deco', 'effect', 'plate', 'combo'];
 const HERO: Record<ItemKind, { title: string; text: string }> = {
     deco: { title: 'ways to dress up your avatar', text: 'Pick one and everybody in your chats will see it around your picture. Everything here is free.' },
     effect: { title: 'scenes for your profile', text: 'A little animation that plays over your profile card whenever somebody opens it. Everything here is free.' },
     plate: { title: 'backgrounds for your name', text: 'An animated strip behind your name in the friends, messages and member lists. Everything here is free.' },
+    combo: { title: 'ready-made looks', text: 'Each one is a decoration, a nameplate and a profile effect picked to go together. One click and you wear all three. Everything here is free.' },
 };
 
 // a small deterministic shuffle, so "For you" stays the same until Shuffle is pressed
@@ -46,7 +48,10 @@ export default function ShopPage() {
     const wornDeco = useDecorationOf(user?.username);
     const wornEffect = useEffectOf(user?.username);
     const wornPlate = usePlateOf(user?.username);
-    const worn: Record<ItemKind, string | null> = { deco: wornDeco, effect: wornEffect, plate: wornPlate };
+    const worn: Record<ItemKind, string | null> = { deco: wornDeco, effect: wornEffect, plate: wornPlate, combo: null };
+    const isOn = (d: Deco) => kind === 'combo'
+        ? (wornDeco === (d as Combo).deco && wornPlate === (d as Combo).plate && wornEffect === (d as Combo).effect)
+        : worn[kind] === d.id;
 
     const [kind, setKind] = useState<ItemKind>('deco');
     const [theme, setTheme] = useState('all');
@@ -73,8 +78,31 @@ export default function ShopPage() {
     useEffect(() => { setLimit(PAGE); }, [kind, theme, query, sort, seed]);
     useEffect(() => { setTheme('all'); setQuery(''); setOpen(null); }, [kind]);
 
-    async function equip(id: string | null) {
+    async function equipCombo(c: Combo | null) {
         if (!user) return;
+        setBusy(true);
+        try {
+            await api.setDecoration(c ? c.deco : null);
+            await api.setCosmetic('plate', c ? c.plate : null);
+            await api.setCosmetic('effect', c ? c.effect : null);
+            setLocalItem('deco', user.username, c ? c.deco : null);
+            setLocalItem('plate', user.username, c ? c.plate : null);
+            setLocalItem('effect', user.username, c ? c.effect : null);
+        } catch (e: any) {
+            alert(e.message || 'Could not save');
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    // one click on a card or a button: wear it, or take it off if it is already worn
+    function toggle(d: Deco) {
+        if (kind === 'combo') { equipCombo(isOn(d) ? null : (d as Combo)); return; }
+        equip(isOn(d) ? null : d.id);
+    }
+
+    async function equip(id: string | null) {
+        if (!user || kind === 'combo') return;
         setBusy(true);
         try {
             if (kind === 'deco') await api.setDecoration(id); else await api.setCosmetic(kind, id);
@@ -89,6 +117,28 @@ export default function ShopPage() {
     // what one item looks like on this person
     const preview = (d: Deco, where: 'card' | 'hero' | 'modal') => {
         if (!user) return null;
+        if (kind === 'combo') {
+            const c = d as Combo;
+            const w = where === 'modal' ? 220 : where === 'hero' ? 78 : 150;
+            const h = Math.round(w * 1.4);
+            const ph = where === 'hero' ? 24 : 38;
+            return (
+                <WhenVisible w={w} h={h + ph + 6}>
+                    <div className="shop-combo" style={{ width: w }}>
+                        <div className="shop-mini" style={{ width: w, height: h }}>
+                            <div className="shop-mini-banner" />
+                            <div className="shop-mini-av"><Avatar name={user.username} color={user.avatarColor} src={user.avatarUrl} size="md" deco={c.deco} /></div>
+                            <div className="shop-mini-name">{user.username}</div>
+                            <ProfileEffect id={c.effect} />
+                        </div>
+                        <div className="shop-plate" style={{ width: w, height: ph }}>
+                            <Nameplate id={c.plate} />
+                            <span>{user.username}</span>
+                        </div>
+                    </div>
+                </WhenVisible>
+            );
+        }
         if (kind === 'deco') {
             const slot = where === 'modal' ? 150 : where === 'hero' ? 96 : 84;
             return <WhenVisible w={slot} h={slot}><Avatar name={user.username} color={user.avatarColor} src={user.avatarUrl} size="xl" deco={d.id} /></WhenVisible>;
@@ -119,27 +169,27 @@ export default function ShopPage() {
     };
 
     const card = (d: Deco) => (
-        <button key={d.id} type="button" className={`shop-card kind-${kind} ${worn[kind] === d.id ? 'on' : ''}`} onClick={() => setOpen(d)}>
+        <button key={d.id} type="button" className={`shop-card kind-${kind} ${isOn(d) ? 'on' : ''}`} onClick={() => setOpen(d)}>
             <div className="shop-art">{preview(d, 'card')}</div>
             <div className="shop-name">{d.name}</div>
-            <div className="shop-sub">{worn[kind] === d.id ? 'Equipped' : 'Free'}</div>
+            <div className="shop-sub">{isOn(d) ? 'Equipped' : 'Free'}</div>
             <span
                 role="button"
                 tabIndex={-1}
-                className={`shop-buy ${worn[kind] === d.id ? 'off' : ''}`}
-                onClick={e => { e.stopPropagation(); equip(worn[kind] === d.id ? null : d.id); }}
+                className={`shop-buy ${isOn(d) ? 'off' : ''}`}
+                onClick={e => { e.stopPropagation(); toggle(d); }}
             >
-                {worn[kind] === d.id ? 'Remove' : 'Equip'}
+                {isOn(d) ? 'Remove' : kind === 'combo' ? 'Equip all' : 'Equip'}
             </span>
         </button>
     );
 
-    const wornItem = worn[kind] ? items.find(d => d.id === worn[kind]) : null;
+    const wornItem = items.find(d => isOn(d)) ?? null;
 
     return (
         <div className="shop-page">
             <div className="shop-kinds" role="tablist">
-                {(['deco', 'effect', 'plate'] as ItemKind[]).map(k => (
+                {KINDS.map(k => (
                     <button key={k} type="button" className={kind === k ? 'on' : ''} onClick={() => setKind(k)}>{TAB_LABEL[k]} <span>{CATALOG[k].length}</span></button>
                 ))}
             </div>
@@ -163,7 +213,7 @@ export default function ShopPage() {
                             {wornItem && (
                                 <div className="shop-now">
                                     <span>You wear <b>{wornItem.name}</b></span>
-                                    <button type="button" onClick={() => equip(null)} disabled={busy}>Take it off</button>
+                                    <button type="button" onClick={() => toggle(wornItem)} disabled={busy}>Take it off</button>
                                 </div>
                             )}
                         </div>
@@ -206,21 +256,45 @@ export default function ShopPage() {
                         <button type="button" className="shop-x" onClick={() => setOpen(null)} aria-label="Close">×</button>
                         <div className="shop-modal-left">
                             {kind === 'deco' && <div className="shop-modal-art">{preview(open, 'modal')}</div>}
+                            {kind === 'combo' && (() => { const c = open as Combo; const nm = (list: Deco[], id: string) => list.find(x => x.id === id)?.name || id; return (
+                                <ul className="shop-combo-parts">
+                                    <li><span>Avatar decoration</span><b>{nm(DECOS, c.deco)}</b></li>
+                                    <li><span>Nameplate</span><b>{nm(PLATES, c.plate)}</b></li>
+                                    <li><span>Profile effect</span><b>{nm(EFFECTS, c.effect)}</b></li>
+                                </ul>); })()}
                             <h2>{open.name}</h2>
-                            <p>{kind === 'deco' ? 'Shows around your avatar everywhere in Velcord.' : kind === 'effect' ? 'Plays over your profile card whenever somebody opens it.' : 'Shows behind your name in the friends, messages and member lists.'}</p>
+                            <p>{kind === 'deco' ? 'Shows around your avatar everywhere in Velcord.' : kind === 'effect' ? 'Plays over your profile card whenever somebody opens it.' : kind === 'combo' ? 'Puts all three on your account at once. They replace what you wear now.' : 'Shows behind your name in the friends, messages and member lists.'}</p>
                             <div className="shop-tags">{[...new Set([open.theme, ...open.tags])].map(t => <span key={t}>{t}</span>)}</div>
                             <div className="shop-price">Free</div>
                             <button
                                 type="button"
                                 className="shop-big-btn"
                                 disabled={busy}
-                                onClick={() => equip(worn[kind] === open.id ? null : open.id)}
+                                onClick={() => toggle(open)}
                             >
-                                {worn[kind] === open.id ? 'Remove' : 'Equip'}
+                                {isOn(open) ? 'Remove' : kind === 'combo' ? 'Equip all three' : 'Equip'}
                             </button>
                         </div>
                         <div className="shop-modal-right">
-                            {kind === 'plate' ? (
+                            {kind === 'combo' ? (
+                                <div className="shop-combo-big">
+                                    <div className="shop-profile">
+                                        <div className="shop-profile-banner" style={{ background: user.bannerColor1 && user.bannerColor2 ? `linear-gradient(135deg, ${user.bannerColor1}, ${user.bannerColor2})` : undefined }} />
+                                        <div className="shop-profile-avatar"><Avatar name={user.username} color={user.avatarColor} src={user.avatarUrl} size="xl" deco={(open as Combo).deco} /></div>
+                                        <div className="shop-profile-body">
+                                            <div className="shop-profile-name">{user.username}</div>
+                                            <div className="shop-profile-sub">This is how it looks on your profile</div>
+                                            <div className="shop-profile-msg">Message @{user.username}</div>
+                                        </div>
+                                        <ProfileEffect id={(open as Combo).effect} />
+                                    </div>
+                                    <div className="shop-plate" style={{ width: 300, height: 48 }}>
+                                        <Nameplate id={(open as Combo).plate} />
+                                        <Avatar name={user.username} color={user.avatarColor} src={user.avatarUrl} size="sm" deco={(open as Combo).deco} />
+                                        <span>{user.username}</span>
+                                    </div>
+                                </div>
+                            ) : kind === 'plate' ? (
                                 <div className="shop-list-preview">
                                     <div className="shop-list-row"><span className="dot" />Friend one</div>
                                     <div className="shop-list-row mine"><div className="shop-plate" style={{ width: '100%', height: 48 }}>

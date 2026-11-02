@@ -113,3 +113,14 @@
     .shop-kinds button { flex: none; padding: 8px 12px; font-size: 13px; }
     .shop-hero-art.kind-plate { display: none; }
 }
+
+/* combos: a profile card with the effect and the decoration, and the nameplate under it */
+.shop-combo { display: flex; flex-direction: column; gap: 6px; }
+.shop-card.kind-combo .shop-art { height: 262px; }
+.shop-grid.kind-combo { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.shop-hero-art.kind-combo .shop-hero-item { width: 96px; }
+.shop-combo-parts { list-style: none; margin: 4px 0 14px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.shop-combo-parts li { display: flex; flex-direction: column; font-size: 12px; color: #9a9ea6; background: #16171c; border-radius: 8px; padding: 8px 10px; }
+.shop-combo-parts b { color: #fff; font-size: 14px; margin-top: 2px; }
+.shop-combo-big { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.shop-combo-big .shop-profile { width: 300px; height: 330px; }

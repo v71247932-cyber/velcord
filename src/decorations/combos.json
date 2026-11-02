@@ -1,0 +1,344 @@
+[
+{
+"id": "sakura-season",
+"name": "Sakura Season",
+"theme": "Nature",
+"tags": [],
+"deco": "sakura-dreams",
+"plate": "cherry-drift",
+"effect": "cherry-wind"
+},
+{
+"id": "autumn-walk",
+"name": "Autumn Walk",
+"theme": "Nature",
+"tags": [],
+"deco": "autumn-drift",
+"plate": "desert-dusk",
+"effect": "maple-drift"
+},
+{
+"id": "firefly-night",
+"name": "Firefly Night",
+"theme": "Nature",
+"tags": [],
+"deco": "firefly-meadow",
+"plate": "deep-forest",
+"effect": "firefly-meadow"
+},
+{
+"id": "rainy-day",
+"name": "Rainy Day",
+"theme": "Nature",
+"tags": [],
+"deco": "spring-rain",
+"plate": "rain-glass",
+"effect": "summer-rain"
+},
+{
+"id": "misty-forest",
+"name": "Misty Forest",
+"theme": "Nature",
+"tags": [],
+"deco": "fern-wreath",
+"plate": "ivy-wall",
+"effect": "misty-pines"
+},
+{
+"id": "lotus-pond",
+"name": "Lotus Pond",
+"theme": "Nature",
+"tags": [],
+"deco": "lotus-bloom",
+"plate": "lily-pond",
+"effect": "lotus-dusk"
+},
+{
+"id": "duck-dive",
+"name": "Duck Dive",
+"theme": "Nature",
+"tags": [],
+"deco": "koi-pond",
+"plate": "tide-lines",
+"effect": "duck-dive"
+},
+{
+"id": "butterfly-garden",
+"name": "Butterfly Garden",
+"theme": "Nature",
+"tags": [],
+"deco": "monarch-wings",
+"plate": "lavender-field",
+"effect": "butterfly-garden"
+},
+{
+"id": "northern-lights",
+"name": "Northern Lights",
+"theme": "Sky & Space",
+"tags": [],
+"deco": "aurora-veil",
+"plate": "aurora-wave",
+"effect": "aurora-veil"
+},
+{
+"id": "winter-cabin",
+"name": "Winter Cabin",
+"theme": "Sky & Space",
+"tags": [],
+"deco": "snowfall-halo",
+"plate": "frost-bite",
+"effect": "starry-snowfall"
+},
+{
+"id": "storm-chaser",
+"name": "Storm Chaser",
+"theme": "Sky & Space",
+"tags": [],
+"deco": "stormcaller",
+"plate": "storm-front",
+"effect": "thunderstorm"
+},
+{
+"id": "rainbow-day",
+"name": "Rainbow Day",
+"theme": "Sky & Space",
+"tags": [],
+"deco": "pastel-rainbow",
+"plate": "dawn-break",
+"effect": "rainbow-rain"
+},
+{
+"id": "starry-sky",
+"name": "Starry Sky",
+"theme": "Sky & Space",
+"tags": [],
+"deco": "star-chart",
+"plate": "orion-belt",
+"effect": "moon-constellations"
+},
+{
+"id": "meteor-night",
+"name": "Meteor Night",
+"theme": "Sky & Space",
+"tags": [],
+"deco": "twin-comets",
+"plate": "comet-trail",
+"effect": "meteor-shower"
+},
+{
+"id": "deep-space",
+"name": "Deep Space",
+"theme": "Sky & Space",
+"tags": [],
+"deco": "nebula-bloom",
+"plate": "nebula-veil",
+"effect": "orbit-sat"
+},
+{
+"id": "saturn-rings",
+"name": "Saturn Rings",
+"theme": "Sky & Space",
+"tags": [],
+"deco": "ringed-giant",
+"plate": "saturn-ring",
+"effect": "orbit-sat"
+},
+{
+"id": "dragon-lair",
+"name": "Dragon Lair",
+"theme": "Fantasy",
+"tags": [],
+"deco": "dragon-wings",
+"plate": "lava-flow",
+"effect": "dragon-flight"
+},
+{
+"id": "volcano-night",
+"name": "Volcano Night",
+"theme": "Fantasy",
+"tags": [],
+"deco": "volcano-peak",
+"plate": "volcano-night",
+"effect": "blue-flames"
+},
+{
+"id": "ice-queen",
+"name": "Ice Queen",
+"theme": "Fantasy",
+"tags": [],
+"deco": "ice-queen",
+"plate": "frost-bite",
+"effect": "crystal-cavern"
+},
+{
+"id": "crystal-cave",
+"name": "Crystal Cave",
+"theme": "Fantasy",
+"tags": [],
+"deco": "crystal-bloom",
+"plate": "crystal-cave",
+"effect": "arcane-portal"
+},
+{
+"id": "wizard-tower",
+"name": "Wizard Tower",
+"theme": "Fantasy",
+"tags": [],
+"deco": "hex-hat",
+"plate": "plasma-orb",
+"effect": "rune-circle"
+},
+{
+"id": "potion-lab",
+"name": "Potion Lab",
+"theme": "Fantasy",
+"tags": [],
+"deco": "potion-brew",
+"plate": "moss-stone",
+"effect": "potion-brew"
+},
+{
+"id": "fairy-forest",
+"name": "Fairy Forest",
+"theme": "Fantasy",
+"tags": [],
+"deco": "fairy-ring",
+"plate": "deep-forest",
+"effect": "fairy-dust"
+},
+{
+"id": "candy-land",
+"name": "Candy Land",
+"theme": "Sweet & Party",
+"tags": [],
+"deco": "lollipop-spin",
+"plate": "cherry-drift",
+"effect": "candy-rain"
+},
+{
+"id": "party-time",
+"name": "Party Time",
+"theme": "Sweet & Party",
+"tags": [],
+"deco": "confetti-pop",
+"plate": "lavender-field",
+"effect": "confetti-pop"
+},
+{
+"id": "sweet-hearts",
+"name": "Sweet Hearts",
+"theme": "Sweet & Party",
+"tags": [],
+"deco": "heart-swags",
+"plate": "cherry-drift",
+"effect": "heart-float"
+},
+{
+"id": "balloon-day",
+"name": "Balloon Day",
+"theme": "Sweet & Party",
+"tags": [],
+"deco": "balloon-rise",
+"plate": "dawn-break",
+"effect": "balloon-bunch"
+},
+{
+"id": "arcade-night",
+"name": "Arcade Night",
+"theme": "Cyber",
+"tags": [],
+"deco": "retro-invaders",
+"plate": "plasma-orb",
+"effect": "arcade-coins"
+},
+{
+"id": "matrix",
+"name": "Matrix",
+"theme": "Cyber",
+"tags": [],
+"deco": "code-rain",
+"plate": "ivy-wall",
+"effect": "matrix-rain"
+},
+{
+"id": "neon-city",
+"name": "Neon City",
+"theme": "Cyber",
+"tags": [],
+"deco": "neon-bolt",
+"plate": "thunder-arc",
+"effect": "neon-rain"
+},
+{
+"id": "pixel-world",
+"name": "Pixel World",
+"theme": "Cyber",
+"tags": [],
+"deco": "pixel-crown",
+"plate": "nebula-veil",
+"effect": "pixel-fall"
+},
+{
+"id": "roman-triumph",
+"name": "Roman Triumph",
+"theme": "Ancient & Music",
+"tags": [],
+"deco": "laurel-crown",
+"plate": "desert-dusk",
+"effect": "laurel-gold"
+},
+{
+"id": "capitoline-wolf",
+"name": "Capitoline Wolf",
+"theme": "Ancient & Music",
+"tags": [],
+"deco": "roma-aeterna",
+"plate": "desert-dusk",
+"effect": "capitoline-wolf"
+},
+{
+"id": "zeus-storm",
+"name": "Zeus Storm",
+"theme": "Ancient & Music",
+"tags": [],
+"deco": "zeus-storm",
+"plate": "thunder-arc",
+"effect": "zeus-storm"
+},
+{
+"id": "pharaoh-night",
+"name": "Pharaoh Night",
+"theme": "Ancient & Music",
+"tags": [],
+"deco": "eye-of-horus",
+"plate": "dune-wind",
+"effect": "nile-glyphs"
+},
+{
+"id": "great-wave",
+"name": "Great Wave",
+"theme": "Ancient & Music",
+"tags": [],
+"deco": "trident-tide",
+"plate": "deep-tide",
+"effect": "great-wave"
+},
+{
+"id": "vinyl-night",
+"name": "Vinyl Night",
+"theme": "Ancient & Music",
+"tags": [],
+"deco": "vinyl-groove",
+"plate": "total-eclipse",
+"effect": "vinyl-night"
+},
+{
+"id": "night-notes",
+"name": "Night Notes",
+"theme": "Ancient & Music",
+"tags": [],
+"deco": "headphone-halo",
+"plate": "aurora-wave",
+"effect": "note-flow"
+}
+]
