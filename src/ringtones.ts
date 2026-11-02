@@ -1,3 +1,5 @@
+import { getAudioContext } from './audioUnlock';
+
 // Call sounds, synthesized in the browser (no audio files to download).
 // The chosen one is remembered on this device.
 
@@ -85,28 +87,27 @@ const outgoing: Pattern = {
 
 /** Plays the repeating call sound; returns a function that stops it. */
 export function startRinging(isIncoming: boolean): () => void {
-    const Ctx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!Ctx) return () => {};
-    const c = new Ctx() as AudioContext;
+    const c = getAudioContext();
+    if (!c) return () => {};
     c.resume().catch(() => {});
     const master = c.createGain();
     master.gain.value = 0.9;
     master.connect(c.destination);
     const pattern = isIncoming ? incoming : outgoing;
     pattern.play(c, master);
-    const iv = setInterval(() => pattern.play(c, master), pattern.period * 1000);
-    return () => { clearInterval(iv); c.close().catch(() => {}); };
+    const iv = setInterval(() => {
+        if (c.state !== 'running') c.resume().catch(() => {});
+        pattern.play(c, master);
+    }, pattern.period * 1000);
+    // the context is shared with the whole app, so it stays open: only this ring is cut off
+    return () => { clearInterval(iv); master.disconnect(); };
 }
 
-
-let messageCtx: AudioContext | null = null;
 /** A short, soft two-note chime for a new message. */
 export function playMessageSound() {
-    const Ctx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!Ctx) return;
     try {
-        if (!messageCtx || messageCtx.state === 'closed') messageCtx = new Ctx() as AudioContext;
-        const c = messageCtx;
+        const c = getAudioContext();
+        if (!c) return;
         c.resume().catch(() => {});
         const out = withEcho(c, c.destination, 0.18);
         marimba(c, out, N.E6, 0, 0.22);
