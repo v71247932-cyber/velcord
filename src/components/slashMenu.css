@@ -48,3 +48,27 @@
     .slash-menu { left: 8px; right: 8px; }
     .slash-bot { display: none; }
 }
+
+/* the card shown once a command is chosen (command + bot + options) */
+.slash-card {
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    bottom: calc(100% - 4px);
+    background: #0b0b0e;
+    border: 1px solid #26262c;
+    border-radius: 8px;
+    box-shadow: 0 -6px 24px rgba(0, 0, 0, .45);
+    z-index: 20;
+    overflow: hidden;
+}
+.slash-card-top, .slash-card-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; min-width: 0; }
+.slash-card-top { border-bottom: 1px solid #26262c; }
+.slash-card-name { font-weight: 700; font-size: 17px; color: #f2f3f5; flex: none; }
+.slash-card-desc { color: #9a9ea6; font-size: 14px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.slash-card-x { flex: none; width: 26px; height: 26px; border-radius: 50%; border: 0; background: #4e5058; color: #f2f3f5; font-size: 18px; line-height: 1; cursor: pointer; touch-action: manipulation; }
+.slash-card-x:hover { background: #6d6f78; }
+.slash-card-row .avatar { width: 28px; height: 28px; font-size: 13px; flex: none; }
+.slash-card-opt { color: #9a9ea6; font-size: 15px; flex: none; }
+.slash-card-optdesc { color: #6f737b; font-size: 13px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 600px) { .slash-card { left: 8px; right: 8px; } .slash-card-optdesc { display: none; } }

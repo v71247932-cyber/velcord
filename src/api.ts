@@ -264,7 +264,7 @@ export interface BotCommands {
     username: string;
     avatarColor: string;
     avatarUrl: string | null;
-    commands: { name: string; description: string }[];
+    commands: { name: string; description: string; options?: { name: string; description: string }[] }[];
 }
 
 export interface Message {

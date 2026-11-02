@@ -93,3 +93,36 @@ export default function SlashMenu({ bots, typed, active, onPick, onHover }: Prop
         </div>
     );
 }
+
+/** The command that is written at the start of the text (after the space that follows its name), if some bot has it */
+export function activeCommand(bots: BotCommands[], input: string): SlashItem | null {
+    const m = /^\/([a-z0-9_-]+)\s/i.exec(input);
+    if (!m) return null;
+    const name = m[1].toLowerCase();
+    for (const bot of bots) {
+        const c = bot.commands.find(x => x.name.toLowerCase() === name);
+        if (c) return { bot, name: c.name, description: c.description };
+    }
+    return null;
+}
+
+/** Shown above the text box once a command is chosen: its name and description, and the bot with how many options the command has. */
+export function CommandCard({ bots, command, onClear }: { bots: BotCommands[]; command: SlashItem; onClear: () => void }) {
+    const full = bots.flatMap(b => b.commands.map(c => ({ bot: b, c }))).find(x => x.bot.id === command.bot.id && x.c.name === command.name);
+    const options = full?.c.options || [];
+    return (
+        <div className="slash-card">
+            <div className="slash-card-top">
+                <span className="slash-card-name">/{command.name}</span>
+                <span className="slash-card-desc">{command.description}</span>
+                <button type="button" className="slash-card-x" onClick={onClear} aria-label="Remove the command" title="Remove the command">×</button>
+            </div>
+            <div className="slash-card-row">
+                <Avatar name={command.bot.username} color={command.bot.avatarColor} src={command.bot.avatarUrl ?? undefined} size="sm" />
+                <span className="slash-card-name">/{command.name}</span>
+                {options.length > 0 && <span className="slash-card-opt">+{options.length} option{options.length === 1 ? '' : 's'}</span>}
+                {options.length > 0 && <span className="slash-card-optdesc">{options.map(o => o.name).join(', ')}</span>}
+            </div>
+        </div>
+    );
+}

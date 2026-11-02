@@ -222,7 +222,12 @@ async function handleSystemBotCommands(request, env) {
   const list = (commands || []).filter((c) => /^[a-z0-9_-]{1,32}$/.test(c.name || "")).slice(0, 25);
   await env.DB.batch([
     env.DB.prepare("DELETE FROM bot_commands WHERE user_id = ?").bind(u.id),
-    ...list.map((c) => env.DB.prepare("INSERT INTO bot_commands (user_id, name, description) VALUES (?, ?, ?)").bind(u.id, c.name, String(c.description || "").slice(0, 120)))
+    ...list.map((c) => env.DB.prepare("INSERT INTO bot_commands (user_id, name, description, options) VALUES (?, ?, ?, ?)").bind(
+      u.id,
+      c.name,
+      String(c.description || "").slice(0, 120),
+      JSON.stringify((c.options || []).slice(0, 8).map((o) => ({ name: String(o.name || "").slice(0, 32), description: String(o.description || "").slice(0, 100) })))
+    ))
   ]);
   return json({ registered: list.length });
 }
@@ -231,7 +236,7 @@ async function handleGroupCommands(request, env, groupId) {
   if (!auth) return err("Unauthorized", 401);
   if (!await isGroupMember(env, groupId, auth.userId)) return err("Not a member of this group", 403);
   const rows = await env.DB.prepare(`
-    SELECT u.id, u.username, u.avatar_color, ${AV("u")} as avatar_url, c.name, c.description
+    SELECT u.id, u.username, u.avatar_color, ${AV("u")} as avatar_url, c.name, c.description, c.options
     FROM group_members gm
     JOIN bot_commands c ON c.user_id = gm.user_id
     JOIN users u ON u.id = gm.user_id
@@ -240,7 +245,12 @@ async function handleGroupCommands(request, env, groupId) {
   const bots = /* @__PURE__ */ new Map();
   for (const r of rows.results) {
     if (!bots.has(r.id)) bots.set(r.id, { id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: avatarPath("avatars", r.id, r.avatar_url), commands: [] });
-    bots.get(r.id).commands.push({ name: r.name, description: r.description });
+    let options = [];
+    try {
+      options = JSON.parse(r.options || "[]");
+    } catch {
+    }
+    bots.get(r.id).commands.push({ name: r.name, description: r.description, options });
   }
   return json([...bots.values()]);
 }
@@ -447,6 +457,23 @@ async function handleResetPassword(request, env) {
     env.DB.prepare("UPDATE password_resets SET expires_at = 0 WHERE user_id = ?").bind(user.id)
   ]);
   return json({ ok: true });
+}
+async function handleSystemChannel(request, env) {
+  const key = request.headers.get("X-System-Key");
+  if (!env.SYSTEM_KEY || !key || key !== env.SYSTEM_KEY) return err("Not found", 404);
+  const { groupId, name } = await request.json();
+  const g = await env.DB.prepare("SELECT id FROM groups WHERE id = ?").bind(groupId).first();
+  if (!g) return err("Group not found", 404);
+  const clean = cleanChannelName(name);
+  if (!clean) return err("Give the channel a name (1 to 32 characters)");
+  await defaultTextChannel(env, groupId);
+  const dup = await env.DB.prepare("SELECT id, name FROM channels WHERE group_id = ? AND kind = 'text' AND name = ? COLLATE NOCASE").bind(groupId, clean).first();
+  if (dup) return json({ id: dup.id, name: dup.name, existed: true });
+  const count = await env.DB.prepare("SELECT COUNT(*) as total FROM channels WHERE group_id = ?").bind(groupId).first();
+  if (count.total >= MAX_CHANNELS) return err(`A group can have ${MAX_CHANNELS} channels at most`, 409);
+  const pos = await env.DB.prepare("SELECT COALESCE(MAX(position), -1) + 1 as p FROM channels WHERE group_id = ? AND kind = 'text'").bind(groupId).first();
+  const made = await env.DB.prepare("INSERT INTO channels (group_id, name, kind, position) VALUES (?, ?, 'text', ?) RETURNING id, name").bind(groupId, clean, pos.p).first();
+  return json({ id: made.id, name: made.name, existed: false }, 201);
 }
 async function handleSystemVideos(request, env) {
   const key = request.headers.get("X-System-Key");
@@ -1164,6 +1191,10 @@ function ensureSchema(env) {
       } catch {
       }
       try {
+        await env.DB.prepare("ALTER TABLE bot_commands ADD COLUMN options TEXT NOT NULL DEFAULT '[]'").run();
+      } catch {
+      }
+      try {
         await env.DB.prepare("ALTER TABLE groups ADD COLUMN avatar_url TEXT").run();
       } catch {
       }
@@ -1279,6 +1310,7 @@ function ensureSchema(env) {
           user_id INTEGER NOT NULL,
           name TEXT NOT NULL,
           description TEXT NOT NULL DEFAULT '',
+          options TEXT NOT NULL DEFAULT '[]',
           PRIMARY KEY (user_id, name)
         )`),
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS channels (
@@ -1829,6 +1861,7 @@ var index_default = {
       if (path === "/api/system/reset-password" && request.method === "POST") return await handleSystemResetPassword(request, env);
       if (path === "/api/system/client-log" && request.method === "GET") return await handleSystemClientLog(request, env);
       if (path === "/api/system/bot-commands" && request.method === "POST") return await handleSystemBotCommands(request, env);
+      if (path === "/api/system/channel" && request.method === "POST") return await handleSystemChannel(request, env);
       if (path === "/api/decorations" && request.method === "GET") return await handleGetDecorations(request, env);
       if (path === "/api/me/decoration" && request.method === "POST") return await handleSetDecoration(request, env);
       if (path === "/api/cosmetics" && request.method === "GET") return await handleGetCosmetics(request, env);

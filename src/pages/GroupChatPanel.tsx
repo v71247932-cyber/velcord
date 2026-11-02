@@ -9,7 +9,7 @@ import { useAttach, useDropZone } from '../useAttach';
 import { useChat } from '../useChat';
 import { useStickToBottom } from '../useStickToBottom';
 import GifPicker from '../components/GifPicker';
-import SlashMenu, { slashItems, rememberCommand } from '../components/SlashMenu';
+import SlashMenu, { CommandCard, activeCommand, slashItems, rememberCommand } from '../components/SlashMenu';
 import type { SlashItem } from '../components/SlashMenu';
 import { FOCUS_CHAT } from '../focusChat';
 import { isMobileDevice } from '../notify';
@@ -50,6 +50,7 @@ export default function GroupChatPanel({ group, channel }: GroupChatPanelProps) 
     const slashTyped = /^\/[^\s]*$/.test(input) ? input.slice(1) : null;
     const slashFlat = slashTyped !== null && !slashClosed ? slashItems(bots, slashTyped).flat : [];
     const slashOpen = slashFlat.length > 0;
+    const chosenCommand = !slashOpen ? activeCommand(bots, input) : null;
     function pickSlash(item: SlashItem) {
         rememberCommand(item.name);
         setInput('/' + item.name + ' ');
@@ -209,6 +210,9 @@ export default function GroupChatPanel({ group, channel }: GroupChatPanelProps) 
             )}
 
             <div className="chat-input-area">
+                {chosenCommand && (
+                    <CommandCard bots={bots} command={chosenCommand} onClear={() => { setInput(''); textareaRef.current?.focus(); }} />
+                )}
                 {slashOpen && slashTyped !== null && (
                     <SlashMenu bots={bots} typed={slashTyped} active={Math.min(slashIndex, slashFlat.length - 1)} onPick={pickSlash} onHover={setSlashIndex} />
                 )}
