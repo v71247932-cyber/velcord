@@ -65,6 +65,7 @@ export const api = {
     defaultVoice: (groupId: number) => request<{ id: number; name: string }>('POST', `/api/groups/${groupId}/default-voice`, {}),
 
     getGroupMembers: (groupId: number) => request<GroupMember[]>('GET', `/api/groups/${groupId}/members`),
+    getGroupCommands: (groupId: number) => request<BotCommands[]>('GET', `/api/groups/${groupId}/commands`),
     kickGroupMember: (groupId: number, userId: number) => request<{ success: boolean }>('DELETE', `/api/groups/${groupId}/members/${userId}`),
 
     updateGroup: (groupId: number, patch: { name?: string; avatarUrl?: string | null; bannerUrl?: string | null; bannerColors?: [string, string] | null }) =>
@@ -228,6 +229,14 @@ export interface GroupMember {
     isOwner: boolean;
     verified?: boolean;
     tick?: boolean;
+}
+
+export interface BotCommands {
+    id: number;
+    username: string;
+    avatarColor: string;
+    avatarUrl: string | null;
+    commands: { name: string; description: string }[];
 }
 
 export interface Message {

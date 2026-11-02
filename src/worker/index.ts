@@ -253,6 +253,40 @@ async function handleSystemGroups(request: Request, env: Env): Promise<Response>
   return json(rows.results);
 }
 
+// --- Bot commands: a bot account registers its slash commands (secret key); group members see them when they type "/" ---
+async function handleSystemBotCommands(request: Request, env: Env): Promise<Response> {
+  const key = request.headers.get('X-System-Key');
+  if (!env.SYSTEM_KEY || !key || key !== env.SYSTEM_KEY) return err('Not found', 404);
+  const { user, commands } = await request.json() as { user?: string; commands?: { name: string; description?: string }[] };
+  const u = await systemUser(env, user);
+  if (!u) return err('No such user', 404);
+  const list = (commands || []).filter((c) => /^[a-z0-9_-]{1,32}$/.test(c.name || '')).slice(0, 25);
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM bot_commands WHERE user_id = ?').bind(u.id),
+    ...list.map((c) => env.DB.prepare('INSERT INTO bot_commands (user_id, name, description) VALUES (?, ?, ?)').bind(u.id, c.name, String(c.description || '').slice(0, 120))),
+  ]);
+  return json({ registered: list.length });
+}
+
+async function handleGroupCommands(request: Request, env: Env, groupId: number): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  if (!(await isGroupMember(env, groupId, auth.userId))) return err('Not a member of this group', 403);
+  const rows = await env.DB.prepare(`
+    SELECT u.id, u.username, u.avatar_color, ${AV('u')} as avatar_url, c.name, c.description
+    FROM group_members gm
+    JOIN bot_commands c ON c.user_id = gm.user_id
+    JOIN users u ON u.id = gm.user_id
+    WHERE gm.group_id = ?
+    ORDER BY u.username COLLATE NOCASE, c.name`).bind(groupId).all();
+  const bots = new Map<number, any>();
+  for (const r of rows.results as any[]) {
+    if (!bots.has(r.id)) bots.set(r.id, { id: r.id, username: r.username, avatarColor: r.avatar_color, avatarUrl: avatarPath('avatars', r.id, r.avatar_url), commands: [] });
+    bots.get(r.id).commands.push({ name: r.name, description: r.description });
+  }
+  return json([...bots.values()]);
+}
+
 // Recent video clips (to diagnose playback problems); needs the secret key
 async function handleSystemVideos(request: Request, env: Env): Promise<Response> {
   const key = request.headers.get('X-System-Key');
@@ -1163,6 +1197,12 @@ function ensureSchema(env: Env): Promise<void> {
           linked_id INTEGER NOT NULL,
           PRIMARY KEY (user_id, linked_id)
         )`),
+        env.DB.prepare(`CREATE TABLE IF NOT EXISTS bot_commands (
+          user_id INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          PRIMARY KEY (user_id, name)
+        )`),
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS channels (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           group_id INTEGER NOT NULL,
@@ -1769,6 +1809,7 @@ export default {
       if (path === '/api/system/group' && request.method === 'POST') return await handleSystemGroup(request, env);
       if (path === '/api/system/group-members' && request.method === 'POST') return await handleSystemGroupMembers(request, env);
       if (path === '/api/system/groups' && request.method === 'GET') return await handleSystemGroups(request, env);
+      if (path === '/api/system/bot-commands' && request.method === 'POST') return await handleSystemBotCommands(request, env);
       if (path === '/api/system/videos' && request.method === 'POST') return await handleSystemVideos(request, env);
       if (path === '/api/system/gif-protect' && request.method === 'POST') return await handleSystemGifProtect(request, env);
       if (path === '/api/system/test-account' && request.method === 'POST') return await handleSystemTestAccount(request, env);
@@ -1852,6 +1893,8 @@ export default {
       const groupAddMatch = path.match(/^\/api\/groups\/(\d+)\/members$/);
       if (groupAddMatch && request.method === 'POST') return await handleAddGroupMembers(request, env, parseInt(groupAddMatch[1]));
 
+      const groupCmdMatch = path.match(/^\/api\/groups\/(\d+)\/commands$/);
+      if (groupCmdMatch && request.method === 'GET') return await handleGroupCommands(request, env, parseInt(groupCmdMatch[1]));
       const groupKickMatch = path.match(/^\/api\/groups\/(\d+)\/members\/(\d+)$/);
       if (groupKickMatch && request.method === 'DELETE') return await handleKickGroupMember(request, env, parseInt(groupKickMatch[1]), parseInt(groupKickMatch[2]));
       const groupMembersMatch = path.match(/^\/api\/groups\/(\d+)\/members$/);

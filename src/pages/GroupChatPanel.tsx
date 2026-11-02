@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
-import type { Message, Group } from '../api';
+import type { Message, Group, BotCommands } from '../api';
 import { useAuth } from '../AuthContext';
 import Avatar from '../components/Avatar';
 import VerifiedBadge from '../components/VerifiedBadge';
@@ -9,6 +9,8 @@ import { useAttach, useDropZone } from '../useAttach';
 import { useChat } from '../useChat';
 import { useStickToBottom } from '../useStickToBottom';
 import GifPicker from '../components/GifPicker';
+import SlashMenu, { slashItems, rememberCommand } from '../components/SlashMenu';
+import type { SlashItem } from '../components/SlashMenu';
 import { FOCUS_CHAT } from '../focusChat';
 import { isMobileDevice } from '../notify';
 import { TypingLine, useTypingNames, useTypingPing } from '../typing';
@@ -35,6 +37,25 @@ export default function GroupChatPanel({ group, channel }: GroupChatPanelProps) 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileRef = useRef<HTMLInputElement>(null);
     const [gifOpen, setGifOpen] = useState(false);
+    const [bots, setBots] = useState<BotCommands[]>([]);
+    const [slashIndex, setSlashIndex] = useState(0);
+    const [slashClosed, setSlashClosed] = useState(false);
+    useEffect(() => {
+        let off = false;
+        setBots([]);
+        api.getGroupCommands(group.id).then(b => { if (!off) setBots(b); }).catch(() => { /* noop */ });
+        return () => { off = true; };
+    }, [group.id]);
+    // the slash menu is open while the text is a slash and one word (no space yet)
+    const slashTyped = /^\/[^\s]*$/.test(input) ? input.slice(1) : null;
+    const slashFlat = slashTyped !== null && !slashClosed ? slashItems(bots, slashTyped).flat : [];
+    const slashOpen = slashFlat.length > 0;
+    function pickSlash(item: SlashItem) {
+        rememberCommand(item.name);
+        setInput('/' + item.name + ' ');
+        setSlashIndex(0);
+        textareaRef.current?.focus();
+    }
     useEffect(() => {
         const focus = () => textareaRef.current?.focus();
         window.addEventListener(FOCUS_CHAT, focus);
@@ -78,6 +99,12 @@ export default function GroupChatPanel({ group, channel }: GroupChatPanelProps) 
     }
 
     function handleKeyDown(e: React.KeyboardEvent) {
+        if (slashOpen) {
+            if (e.key === 'ArrowDown') { e.preventDefault(); setSlashIndex(i => (i + 1) % slashFlat.length); return; }
+            if (e.key === 'ArrowUp') { e.preventDefault(); setSlashIndex(i => (i - 1 + slashFlat.length) % slashFlat.length); return; }
+            if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickSlash(slashFlat[Math.min(slashIndex, slashFlat.length - 1)]); return; }
+            if (e.key === 'Escape') { e.preventDefault(); setSlashClosed(true); return; }
+        }
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             handleSend();
@@ -86,6 +113,8 @@ export default function GroupChatPanel({ group, channel }: GroupChatPanelProps) 
 
     function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
         setInput(e.target.value);
+        setSlashClosed(false);
+        setSlashIndex(0);
         if (e.target.value.trim()) pingTyping();
         e.target.style.height = 'auto';
         e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
@@ -180,6 +209,9 @@ export default function GroupChatPanel({ group, channel }: GroupChatPanelProps) 
             )}
 
             <div className="chat-input-area">
+                {slashOpen && slashTyped !== null && (
+                    <SlashMenu bots={bots} typed={slashTyped} active={Math.min(slashIndex, slashFlat.length - 1)} onPick={pickSlash} onHover={setSlashIndex} />
+                )}
                 {gifOpen && (
                     <GifPicker
                         onClose={() => setGifOpen(false)}
