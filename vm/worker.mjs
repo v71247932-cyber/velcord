@@ -1165,7 +1165,7 @@ async function handleSendGroupMessage(request, env, groupId) {
       const clean = askedButtons.slice(0, 5).map((b) => ({
         label: String(b.label || "").slice(0, 40),
         ...b.send ? { send: String(b.send).slice(0, 300) } : {},
-        ...b.fill ? { fill: String(b.fill).slice(0, 300) } : {},
+        ...b.fill ? { fill: String(b.fill).slice(0, 1500) } : {},
         style: ["primary", "secondary", "danger"].includes(String(b.style)) ? String(b.style) : "secondary"
       })).filter((b) => b.label && ("send" in b || "fill" in b));
       buttonsJson = JSON.stringify(clean);

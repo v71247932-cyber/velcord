@@ -144,8 +144,16 @@ export default function GroupChatPanel({ group, channel }: GroupChatPanelProps) 
     function pressButton(b: MessageButton) {
         if (b.send) send(b.send).catch((e: any) => alert(e.message || 'Message not sent'));
         else if (b.fill) {
+            // opens the text for editing: the box grows to show it and the cursor goes to the end
             setInput(b.fill);
-            textareaRef.current?.focus();
+            requestAnimationFrame(() => {
+                const t = textareaRef.current;
+                if (!t) return;
+                t.style.height = 'auto';
+                t.style.height = Math.min(t.scrollHeight, 260) + 'px';
+                t.focus();
+                t.setSelectionRange(t.value.length, t.value.length);
+            });
         }
     }
 
