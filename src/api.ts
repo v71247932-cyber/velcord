@@ -18,6 +18,22 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     return data as T;
 }
 
+/** a message must survive the few seconds the server is restarting (a deploy): connection errors and gateway errors are tried again */
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+    let last: unknown;
+    for (let i = 0; i < 7; i++) {
+        try {
+            return await fn();
+        } catch (e: any) {
+            const transient = e instanceof TypeError || [502, 503, 504, 520, 521, 522, 523, 524].includes(e?.status);
+            if (!transient) throw e;
+            last = e;
+            await new Promise(r => setTimeout(r, 1200 + i * 800));
+        }
+    }
+    throw last;
+}
+
 export const api = {
     register: (username: string, password: string) =>
         request<{ success: boolean }>('POST', '/api/auth/register', { username, password }),
@@ -50,13 +66,13 @@ export const api = {
         request<Message[]>('GET', `/api/messages/${userId}?after=${afterId}${seen ? '&seen=1' : ''}`),
 
     sendMessage: (userId: number, content: string) =>
-        request<Message>('POST', `/api/messages/${userId}`, { content }),
+        withRetry(() => request<Message>('POST', `/api/messages/${userId}`, { content })),
 
     getGroupMessages: (groupId: number, afterId = 0, channelId?: number) =>
         request<Message[]>('GET', `/api/groups/${groupId}/messages?after=${afterId}${channelId ? `&channel=${channelId}` : ''}`),
 
     sendGroupMessage: (groupId: number, content: string, channelId?: number) =>
-        request<Message>('POST', `/api/groups/${groupId}/messages`, { content, channelId }),
+        withRetry(() => request<Message>('POST', `/api/groups/${groupId}/messages`, { content, channelId })),
 
     getChannels: (groupId: number) => request<{ max: number; channels: Channel[] }>('GET', `/api/groups/${groupId}/channels`),
     createChannel: (groupId: number, name: string, kind: 'text' | 'voice') => request<Channel>('POST', `/api/groups/${groupId}/channels`, { name, kind }),
