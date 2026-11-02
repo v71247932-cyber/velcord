@@ -45,3 +45,13 @@ export async function enablePush(): Promise<PushState> {
 export async function refreshPush() {
     try { if (pushState() === 'granted') await subscribe(); } catch { /* try again next time */ }
 }
+
+/** The "Incoming call" notifications are stale once the app is open (the call shows inside it): remove them. Missed calls stay. */
+export async function closeCallNotifications() {
+    try {
+        if (!('serviceWorker' in navigator)) return;
+        const reg = await navigator.serviceWorker.getRegistration();
+        const list = (await reg?.getNotifications()) || [];
+        list.filter(n => n.tag.startsWith('call-')).forEach(n => n.close());
+    } catch { /* noop */ }
+}

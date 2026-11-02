@@ -7,6 +7,7 @@ import { startAutoUpdate } from './autoUpdate'
 import { startEscapeClose } from './escapeClose'
 import { installAudioUnlock } from './audioUnlock'
 import { startClientLog } from './clientLog'
+import { closeCallNotifications } from './push'
 
 // In the desktop app the title bar is hidden, so the page draws its own drag strip
 const desktop = (window as any).velcordDesktop;
@@ -26,6 +27,8 @@ startAutoUpdate()
 startEscapeClose()
 installAudioUnlock()
 startClientLog()
+closeCallNotifications();
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') closeCallNotifications(); });
 
 // Phones report the page height wrongly while the browser bars or the keyboard move (the bottom bar of the menu
 // was cut off on an iPhone). The real visible height is measured and used for the layout.

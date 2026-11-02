@@ -12,7 +12,7 @@ export interface Env {
   SYSTEM_KEY?: string;
   /** Web Push: public key for the browsers, and the function (given by the Node server) that sends one */
   VAPID_PUBLIC_KEY?: string;
-  PUSH?: (userIds: number[], payload: { title: string; body: string; tag: string; url: string }) => void;
+  PUSH?: (userIds: number[], payload: { title: string; body: string; tag: string; url: string; replaces?: string }) => void;
   /** Node server only: keeps sending the "Incoming call" notification every few seconds while the call is not answered */
   RING?: (calleeId: number, callerId: number, callerName: string) => void;
 }

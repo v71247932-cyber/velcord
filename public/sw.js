@@ -25,6 +25,11 @@ self.addEventListener('push', event => {
         badge: '/icons/icon-192.png',
         data: { url: data.url || '/app' },
       });
+      // a "Missed call" takes the place of the "Incoming call" that was ringing
+      if (data.replaces) {
+        const old = await self.registration.getNotifications({ tag: data.replaces });
+        old.forEach(n => n.close());
+      }
       await report('push', 'received and shown: ' + title);
     } catch (e) {
       await report('push-error', String(e && e.message || e));

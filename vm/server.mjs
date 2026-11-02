@@ -144,16 +144,25 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   };
 
   // A web app cannot make the phone ring like a real call. The nearest thing: repeat the "Incoming call"
-  // notification every 5 seconds (each one plays the notification sound) until the call is answered, refused or hung up.
+  // notification every 5 seconds (each one plays the notification sound) until the call is answered, refused or
+  // hung up. If it was never answered, one "Missed call" notification replaces it and stays in the notification list
+  // until the person swipes it away.
   env.RING = (calleeId, callerId, callerName) => {
     const started = Math.floor(Date.now() / 1000);
     let n = 0;
     const iv = setInterval(() => {
       n += 1;
       try {
-        const over = sql.prepare("SELECT 1 FROM call_signals WHERE ((from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?)) AND type IN ('accept', 'reject', 'hangup') AND created_at >= ? LIMIT 1").get(callerId, calleeId, calleeId, callerId, started);
+        const sig = sql.prepare("SELECT type, from_id FROM call_signals WHERE ((from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?)) AND type IN ('accept', 'reject', 'hangup') AND created_at >= ?").all(callerId, calleeId, calleeId, callerId, started);
+        const handled = sig.some(x => x.type === 'accept' || x.type === 'reject');
+        const hungUp = sig.some(x => x.type === 'hangup' && x.from_id === callerId);
         const away = sql.prepare('SELECT 1 FROM users WHERE id = ? AND (last_seen IS NULL OR last_seen < unixepoch() - 25)').get(calleeId);
-        if (over || !away || n > 6) return clearInterval(iv);
+        if (handled || !away) return clearInterval(iv);
+        if (hungUp || n > 6) {
+          clearInterval(iv);
+          env.PUSH([calleeId], { title: callerName, body: 'Missed call', tag: `missed-${callerId}`, url: '/app', replaces: `call-${callerId}` });
+          return;
+        }
         env.PUSH([calleeId], { title: callerName, body: 'Incoming call', tag: `call-${callerId}`, url: '/app' });
       } catch { clearInterval(iv); }
     }, 5000);
