@@ -18,7 +18,7 @@
 /* nameplates: the animated background of a list row */
 .nameplate-bg { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
 .nameplate-bg svg { width: 100%; height: 100%; display: block; }
-.dm-item:has(.nameplate-bg), .member-row:has(.nameplate-bg), .friend-item:has(.nameplate-bg) { position: relative; overflow: hidden; border-radius: 8px; }
+.dm-item:has(.nameplate-bg), .member-row:has(.nameplate-bg), .friend-item:has(.nameplate-bg) { position: relative; border-radius: 8px; }
 .dm-item:has(.nameplate-bg) > :not(.nameplate-bg), .member-row:has(.nameplate-bg) > :not(.nameplate-bg), .friend-item:has(.nameplate-bg) > :not(.nameplate-bg) { position: relative; z-index: 1; }
 .dm-item:has(.nameplate-bg) .dm-name, .member-row:has(.nameplate-bg) .member-name, .friend-item:has(.nameplate-bg) .friend-name { color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, .65); }
 .dm-item.active:has(.nameplate-bg) { box-shadow: 0 0 0 2px rgba(255, 255, 255, .35) inset; }
@@ -30,3 +30,8 @@
 .user-bar:has(> .nameplate-bg) .user-bar-btn { color: #fff; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .6)); }
 .user-bar:has(> .nameplate-bg) .user-bar-btn.is-off { color: #ff8b8d; }
 .user-bar:has(> .nameplate-bg) .user-bar-main:hover { background: rgba(0, 0, 0, .18); }
+
+/* avatar decorations stick out of the avatar, so the rows must not clip them; the backgrounds clip themselves */
+.dm-item, .user-bar, .member-row, .friend-item { overflow: visible !important; }
+.dm-item-bg, .nameplate-bg { border-radius: inherit; overflow: hidden; }
+.dm-item .avatar-wrap.has-deco, .user-bar .avatar-wrap.has-deco, .member-row .avatar-wrap.has-deco, .friend-item .avatar-wrap.has-deco { z-index: 6; }
