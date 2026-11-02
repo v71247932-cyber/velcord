@@ -24,10 +24,13 @@ import { useChannels } from '../useChannels';
 import GroupChannels from '../components/GroupChannels';
 import '../switch.css';
 import GroupMembersPanel from '../components/GroupMembersPanel';
+import ShopPage from './ShopPage';
+import { startDecorationSync, stopDecorationSync } from '../decorations/store';
 import CreateGroupModal from '../components/CreateGroupModal';
 
 type View =
     | { type: 'friends' }
+    | { type: 'shop' }
     | { type: 'dm'; friend: FriendUser }
     | { type: 'group'; group: Group };
 
@@ -36,10 +39,11 @@ export default function MainLayout() {
     const conference = useConference();
     const { phase: callPhase, startCall, muted, deafened, toggleMute, toggleDeafen } = useCall();
     const [view, setView] = useState<View>({ type: 'friends' });
+    useEffect(() => { startDecorationSync(); return () => stopDecorationSync(); }, []);
     const [groups, setGroups] = useState<Group[]>([]);
     const [profileId, setProfileId] = useState<number | null>(null); // whose profile window is open
     // The shared screen is big only after a click on the voice channel; going anywhere else (Friends, a chat, another group) shrinks it
-    const viewKey = view.type === 'dm' ? `dm${view.friend.id}` : view.type === 'group' ? `g${view.group.id}` : 'friends';
+    const viewKey = view.type === 'dm' ? `dm${view.friend.id}` : view.type === 'group' ? `g${view.group.id}` : view.type === 'shop' ? 'shop' : 'friends';
     useEffect(() => { conference.setExpanded(false); }, [viewKey]); // eslint-disable-line react-hooks/exhaustive-deps
     useEffect(() => {
         const open = (e: Event) => setProfileId((e as CustomEvent<number>).detail);
@@ -305,6 +309,7 @@ export default function MainLayout() {
 
     const getHeaderTitle = () => {
         if (view.type === 'friends') return 'Friends';
+        if (view.type === 'shop') return 'Shop';
         if (view.type === 'dm') return `@${view.friend.username}`;
         if (view.type === 'group') return activeText ? `${view.group.name} · #${activeText.name}` : view.group.name;
         return 'Velcord';
@@ -395,6 +400,14 @@ export default function MainLayout() {
                         <UsersIcon size={20} />
                         <span>Friends</span>
                         {pendingCount > 0 && <span className="friends-row-badge">{pendingCount}</span>}
+                    </button>
+                    <button
+                        className={`friends-row ${view.type === 'shop' ? 'active' : ''}`}
+                        onClick={() => { setView({ type: 'shop' }); setSidebarOpen(false); }}
+                        id="nav-shop"
+                    >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" /><path d="M3 6h18" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
+                        <span>Shop</span>
                     </button>
 
                     {view.type === 'group' && currentGroup && (
@@ -503,6 +516,14 @@ export default function MainLayout() {
                             <span>Friends</span>
                         </div>
                         <FriendsPanel onOpenDM={openDM} />
+                    </>
+                )}
+                {view.type === 'shop' && (
+                    <>
+                        <div className="content-header">
+                            <span>Shop</span>
+                        </div>
+                        <ShopPage />
                     </>
                 )}
                 {view.type === 'dm' && currentFriend && (() => {

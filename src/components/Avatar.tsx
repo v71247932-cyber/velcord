@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useDecorationOf } from '../decorations/store';
+import DecoOverlay from '../decorations/DecoOverlay';
 
 export const PROFILE_EVENT = 'velcord:open-profile';
 export function openProfile(userId: number) {
@@ -16,10 +18,14 @@ interface AvatarProps {
     userId?: number;
     /** Shows a green (online) or grey (offline) dot in the corner */
     status?: 'online' | 'offline';
+    /** show this decoration instead of the one the person wears (shop previews); null = none */
+    deco?: string | null;
 }
 
-export default function Avatar({ name, color, src, size = 'md', zoomable = false, userId, status }: AvatarProps) {
+export default function Avatar({ name, color, src, size = 'md', zoomable = false, userId, status, deco }: AvatarProps) {
     const [open, setOpen] = useState(false);
+    const worn = useDecorationOf(name);
+    const decoId = deco === undefined ? worn : deco;
     const letter = name.charAt(0).toUpperCase();
 
     const circle = (
@@ -39,10 +45,11 @@ export default function Avatar({ name, color, src, size = 'md', zoomable = false
 
     return (
         <>
-            {status ? (
-                <div className={`avatar-wrap avatar-wrap-${size}`}>
+            {status || decoId ? (
+                <div className={`avatar-wrap avatar-wrap-${size} ${decoId ? 'has-deco' : ''}`}>
                     {circle}
-                    <span className={`status-dot status-${status}`} />
+                    {decoId && <DecoOverlay id={decoId} />}
+                    {status && <span className={`status-dot status-${status}`} />}
                 </div>
             ) : circle}
 

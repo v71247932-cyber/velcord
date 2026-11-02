@@ -105,3 +105,15 @@ body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
   .profile-identity .avatar-hint { display: none; } /* the long hint pushed the name up under the banner */
   .profile-identity { padding-bottom: 14px; }
 }
+
+/* the members panel must stay closed on phones and tablets until its button is pressed
+   (.members-aside sets display:flex later in the cascade, which used to win over the rule above) */
+@media (max-width: 1000px) {
+  .chat-split { position: relative; }
+  .right-panel.members-aside { display: none; }
+  .chat-split.info-open .right-panel.members-aside {
+    display: flex; position: absolute; top: 0; right: 0; bottom: 0; width: min(340px, 100%);
+    z-index: 50; background: var(--bg-secondary); box-shadow: -8px 0 24px rgba(0,0,0,0.5);
+    padding-bottom: var(--sab);
+  }
+}

@@ -65,6 +65,8 @@ export const api = {
     defaultVoice: (groupId: number) => request<{ id: number; name: string }>('POST', `/api/groups/${groupId}/default-voice`, {}),
 
     getGroupMembers: (groupId: number) => request<GroupMember[]>('GET', `/api/groups/${groupId}/members`),
+    getDecorations: () => request<{ byName: Record<string, string> }>('GET', '/api/decorations'),
+    setDecoration: (id: string | null) => request<{ success: boolean; id: string | null }>('POST', '/api/me/decoration', { id }),
     getGroupCommands: (groupId: number) => request<BotCommands[]>('GET', `/api/groups/${groupId}/commands`),
     kickGroupMember: (groupId: number, userId: number) => request<{ success: boolean }>('DELETE', `/api/groups/${groupId}/members/${userId}`),
 

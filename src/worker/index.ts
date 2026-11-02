@@ -287,6 +287,28 @@ async function handleGroupCommands(request: Request, env: Env, groupId: number):
   return json([...bots.values()]);
 }
 
+// --- Shop: the avatar decoration each person wears (the pictures themselves live in the app) ---
+async function handleGetDecorations(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const rows = await env.DB.prepare('SELECT u.username, d.deco FROM user_decorations d JOIN users u ON u.id = d.user_id').all();
+  const byName: Record<string, string> = {};
+  for (const r of rows.results as { username: string; deco: string }[]) byName[r.username.toLowerCase()] = r.deco;
+  return json({ byName });
+}
+async function handleSetDecoration(request: Request, env: Env): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!auth) return err('Unauthorized', 401);
+  const { id } = await request.json() as { id?: string | null };
+  if (id === null || id === undefined || id === '') {
+    await env.DB.prepare('DELETE FROM user_decorations WHERE user_id = ?').bind(auth.userId).run();
+    return json({ success: true, id: null });
+  }
+  if (!/^[a-z0-9-]{3,40}$/.test(id)) return err('Invalid decoration');
+  await env.DB.prepare('INSERT INTO user_decorations (user_id, deco) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET deco = excluded.deco').bind(auth.userId, id).run();
+  return json({ success: true, id });
+}
+
 // Recent video clips (to diagnose playback problems); needs the secret key
 async function handleSystemVideos(request: Request, env: Env): Promise<Response> {
   const key = request.headers.get('X-System-Key');
@@ -1197,6 +1219,7 @@ function ensureSchema(env: Env): Promise<void> {
           linked_id INTEGER NOT NULL,
           PRIMARY KEY (user_id, linked_id)
         )`),
+        env.DB.prepare('CREATE TABLE IF NOT EXISTS user_decorations (user_id INTEGER PRIMARY KEY, deco TEXT NOT NULL)'),
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS bot_commands (
           user_id INTEGER NOT NULL,
           name TEXT NOT NULL,
@@ -1810,6 +1833,8 @@ export default {
       if (path === '/api/system/group-members' && request.method === 'POST') return await handleSystemGroupMembers(request, env);
       if (path === '/api/system/groups' && request.method === 'GET') return await handleSystemGroups(request, env);
       if (path === '/api/system/bot-commands' && request.method === 'POST') return await handleSystemBotCommands(request, env);
+      if (path === '/api/decorations' && request.method === 'GET') return await handleGetDecorations(request, env);
+      if (path === '/api/me/decoration' && request.method === 'POST') return await handleSetDecoration(request, env);
       if (path === '/api/system/videos' && request.method === 'POST') return await handleSystemVideos(request, env);
       if (path === '/api/system/gif-protect' && request.method === 'POST') return await handleSystemGifProtect(request, env);
       if (path === '/api/system/test-account' && request.method === 'POST') return await handleSystemTestAccount(request, env);
