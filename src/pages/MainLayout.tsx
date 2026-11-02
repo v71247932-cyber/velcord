@@ -845,7 +845,7 @@ export default function MainLayout() {
                     box-sizing: content-box;
                     cursor: pointer;
                     flex-shrink: 0;
-                    overflow: hidden;
+                    overflow: visible; /* the decoration around the avatar sticks out of the circle */
                 }
                 .avatar-preview-container .avatar {
                     width: 88px !important;
@@ -855,6 +855,8 @@ export default function MainLayout() {
                 .avatar-upload-overlay {
                     position: absolute;
                     inset: 0;
+                    border-radius: 50%;
+                    z-index: 4;
                     background: rgba(0,0,0,0.55);
                     display: flex;
                     align-items: center;
