@@ -165,7 +165,9 @@ export class ConfEngine {
             this.mic = null;
             this.hasMic = false;
             this.onNotice(e?.name === 'NotAllowedError'
-                ? 'Microphone permission was denied. You can still listen and watch.'
+                ? (/iPhone|iPad|iPod/i.test(navigator.userAgent)
+                    ? 'Microphone is blocked. On the iPhone: Settings, Safari, Microphone, choose Ask or Allow, then close and reopen Velcord. You can still listen and watch.'
+                    : 'Microphone permission was denied. You can still listen and watch.')
                 : 'No microphone found. You can still listen and watch.');
         }
     }

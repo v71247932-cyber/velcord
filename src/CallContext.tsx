@@ -35,8 +35,13 @@ const RTC_CONFIG: RTCConfiguration = {
 const RING_TIMEOUT_MS = 45_000;
 const INVITE_MAX_AGE_S = 45;
 
+const ON_IPHONE = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+export const MIC_HELP = ON_IPHONE
+    ? 'Microphone is blocked. On the iPhone: Settings, Safari, Microphone, choose Ask or Allow. Then close Velcord completely, open it again and press Allow when it asks.'
+    : 'Microphone permission was denied. Allow it in your browser and try again.';
+
 function describeMediaError(e: any): string {
-    if (e?.name === 'NotAllowedError') return 'Microphone permission was denied. Allow it in your browser and try again.';
+    if (e?.name === 'NotAllowedError') return MIC_HELP;
     if (e?.name === 'NotFoundError') return 'No microphone found.';
     return e?.message || 'Could not access the microphone.';
 }
