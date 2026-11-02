@@ -474,8 +474,8 @@ export default function MainLayout() {
                     {(user!.bannerUrl || (user!.bannerColor1 && user!.bannerColor2)) && (
                         <div className="user-bar-bg" style={bannerStyle(user!)} />
                     )}
+                    <NameplateOf name={user!.username} />
                     <div className="user-bar-main" onClick={() => setShowProfileMenu(true)} title="Profile settings">
-                        <NameplateOf name={user!.username} />
                         <Avatar name={user!.username} color={user!.avatarColor} src={user!.avatarUrl} size="md" status="online" />
                         <div className="user-info">
                             <div className="user-name">{user!.username}</div>

@@ -23,9 +23,10 @@
 .dm-item:has(.nameplate-bg) .dm-name, .member-row:has(.nameplate-bg) .member-name, .friend-item:has(.nameplate-bg) .friend-name { color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, .65); }
 .dm-item.active:has(.nameplate-bg) { box-shadow: 0 0 0 2px rgba(255, 255, 255, .35) inset; }
 
-/* the person's own row at the bottom of the menu shows the nameplate too */
-.user-bar-main:has(.nameplate-bg) { position: relative; overflow: hidden; border-radius: 8px; }
-.user-bar-main:has(.nameplate-bg) > :not(.nameplate-bg) { position: relative; z-index: 1; }
-.user-bar-main:has(.nameplate-bg) .user-name { color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, .65); }
-.user-bar-main:has(.nameplate-bg) .user-tag { color: #e9ebef; text-shadow: 0 1px 3px rgba(0, 0, 0, .65); }
-.user-bar-main:has(.nameplate-bg):hover { background: transparent; }
+/* the whole bar at the bottom of the menu (picture, name and buttons) sits on the person's nameplate */
+.user-bar > .nameplate-bg { position: absolute; inset: 0; z-index: 0; }
+.user-bar:has(> .nameplate-bg) .user-name { color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, .65); }
+.user-bar:has(> .nameplate-bg) .user-tag { color: #e9ebef; text-shadow: 0 1px 3px rgba(0, 0, 0, .65); }
+.user-bar:has(> .nameplate-bg) .user-bar-btn { color: #fff; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .6)); }
+.user-bar:has(> .nameplate-bg) .user-bar-btn.is-off { color: #ff8b8d; }
+.user-bar:has(> .nameplate-bg) .user-bar-main:hover { background: rgba(0, 0, 0, .18); }
