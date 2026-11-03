@@ -43,7 +43,12 @@ self.addEventListener('notificationclick', event => {
   event.waitUntil((async () => {
     const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const c of all) {
-      if ('focus' in c) { await c.focus(); return; }
+      if ('focus' in c) {
+        // the app is already open: tell it which chat to show
+        try { c.postMessage({ type: 'open-url', url }); } catch { /* ignore */ }
+        await c.focus();
+        return;
+      }
     }
     await self.clients.openWindow(url);
   })());

@@ -130,6 +130,44 @@ export default function MainLayout() {
         return () => { clearInterval(interval); off(); stopLive(); };
     }, []);
 
+    // A click on a notification: /app?group=ID&channel=ID or /app?dm=USER_ID. It waits until the lists are loaded.
+    const pendingOpen = useRef<{ group?: number; channel?: number; dm?: number } | null>(null);
+    const readTarget = (search: string) => {
+        const q = new URLSearchParams(search);
+        const group = parseInt(q.get('group') || ''), channel = parseInt(q.get('channel') || ''), dm = parseInt(q.get('dm') || '');
+        if (Number.isInteger(group)) pendingOpen.current = { group, channel: Number.isInteger(channel) ? channel : undefined };
+        else if (Number.isInteger(dm)) pendingOpen.current = { dm };
+        else return;
+        setOpenTick(t => t + 1);
+    };
+    const [openTick, setOpenTick] = useState(0);
+    useEffect(() => {
+        if (window.location.search) { readTarget(window.location.search); window.history.replaceState(null, '', '/app'); }
+        const onMsg = (e: MessageEvent) => {
+            if (e.data && e.data.type === 'open-url' && typeof e.data.url === 'string') {
+                try { readTarget(new URL(e.data.url, window.location.origin).search); } catch { /* ignore */ }
+            }
+        };
+        navigator.serviceWorker?.addEventListener('message', onMsg);
+        return () => navigator.serviceWorker?.removeEventListener('message', onMsg);
+    }, []);
+    useEffect(() => {
+        const t = pendingOpen.current;
+        if (!t) return;
+        if (t.group !== undefined) {
+            const g = groups.find(x => x.id === t.group);
+            if (!g) return; // lists not loaded yet; runs again when they are
+            if (t.channel !== undefined) setTextChoice(c => ({ ...c, [g.id]: t.channel as number }));
+            pendingOpen.current = null;
+            openGroup(g);
+        } else if (t.dm !== undefined) {
+            const f = friendsData.friends.find(x => x.id === t.dm);
+            if (!f) return;
+            pendingOpen.current = null;
+            openDM(f);
+        }
+    }, [openTick, groups, friendsData]);
+
     function openDM(friend: FriendUser) {
         setSidebarOpen(false); // first, so the menu always closes on a phone
         setShowInfo(false);

@@ -449,7 +449,7 @@ async function handleWebhook(request: Request, env: Env, token: string): Promise
   const msg = await env.DB.prepare('INSERT INTO group_messages (group_id, sender_id, content, channel_id) VALUES (?, ?, ?, ?) RETURNING id').bind(hook.group_id, sys, text, channelId).first() as { id: number };
   const gname = await env.DB.prepare('SELECT name FROM groups WHERE id = ?').bind(hook.group_id).first() as { name: string } | null;
   const members = await env.DB.prepare('SELECT user_id FROM group_members WHERE group_id = ?').bind(hook.group_id).all();
-  await pushTo(env, (members.results as { user_id: number }[]).map((r) => r.user_id), { title: gname?.name || 'Group', body: pushPreview(text.replace(/\n+/g, ' ')), tag: `grp-${hook.group_id}`, url: '/app' });
+  await pushTo(env, (members.results as { user_id: number }[]).map((r) => r.user_id), { title: gname?.name || 'Group', body: pushPreview(text.replace(/\n+/g, ' ')), tag: `grp-${hook.group_id}`, url: `/app?group=${hook.group_id}&channel=${channelId}` });
   return json({ ok: true, id: msg.id }, 200);
 }
 
@@ -1146,7 +1146,7 @@ async function handleSendMessage(request: Request, env: Env, otherUserId: number
   `).bind(auth.userId, otherUserId, content.trim(), auth.userId, otherUserId, otherUserId, auth.userId).first() as { id: number; created_at: number } | null;
   if (!result) return err('You are not friends with this user yet', 403);
   await env.DB.prepare('DELETE FROM typing WHERE k = ?').bind(`d:${auth.userId}:${otherUserId}`).run();
-  await pushTo(env, [otherUserId], { title: auth.username, body: pushPreview(content.trim()), tag: `dm-${auth.userId}`, url: '/app' }); // the "typing" line disappears when the message arrives
+  await pushTo(env, [otherUserId], { title: auth.username, body: pushPreview(content.trim()), tag: `dm-${auth.userId}`, url: `/app?dm=${auth.userId}` }); // the "typing" line disappears when the message arrives
 
   return json({ id: result.id, content: content.trim(), createdAt: result.created_at, senderId: auth.userId }, 201);
 }
@@ -1396,7 +1396,7 @@ async function handleSendGroupMessage(request: Request, env: Env, groupId: numbe
   {
     const gname = await env.DB.prepare('SELECT name FROM groups WHERE id = ?').bind(groupId).first() as { name: string } | null;
     const others = await env.DB.prepare('SELECT user_id FROM group_members WHERE group_id = ? AND user_id != ?').bind(groupId, auth.userId).all();
-    await pushTo(env, (others.results as { user_id: number }[]).map((r) => r.user_id), { title: gname?.name || 'Group', body: `${auth.username}: ${pushPreview(content.trim())}`, tag: `grp-${groupId}`, url: '/app' });
+    await pushTo(env, (others.results as { user_id: number }[]).map((r) => r.user_id), { title: gname?.name || 'Group', body: `${auth.username}: ${pushPreview(content.trim())}`, tag: `grp-${groupId}`, url: `/app?group=${groupId}&channel=${channelId}` });
   }
 
   return json({ id: result.id, content: content.trim(), createdAt: result.created_at, senderId: auth.userId }, 201);
@@ -2034,7 +2034,7 @@ async function handleCallSignal(request: Request, env: Env): Promise<Response> {
   if (await isSystemUserId(env, to)) return err('You cannot call Velcord', 403);
   await env.DB.prepare('INSERT INTO call_signals (from_id, to_id, type, payload) VALUES (?, ?, ?, ?)')
     .bind(auth.userId, to, type, payload ?? null).run();
-  if (type === 'invite') await pushTo(env, [to], { title: auth.username, body: 'Incoming call', tag: `call-${auth.userId}`, url: '/app' });
+  if (type === 'invite') await pushTo(env, [to], { title: auth.username, body: 'Incoming call', tag: `call-${auth.userId}`, url: `/app?dm=${auth.userId}` });
   if (type === 'invite') env.RING?.(to, auth.userId, auth.username);
   return json({ success: true }, 201);
 }
