@@ -8,6 +8,7 @@ import ChatPanel from './ChatPanel';
 import GroupChatPanel from './GroupChatPanel';
 import { useCall } from '../CallContext';
 import { bannerStyle } from '../banner';
+import { CHAT_BG_PRESETS, shrinkToDataUrl } from '../chatBg';
 import { playMessageSound } from '../ringtones';
 import { requestChatFocus } from '../focusChat';
 import VerifiedBadge from '../components/VerifiedBadge';
@@ -297,6 +298,29 @@ export default function MainLayout() {
             alert(err.message);
         } finally {
             setUpdatingProfile(false);
+        }
+    }
+
+    async function saveChatBg(value: string | null) {
+        setUpdatingProfile(true);
+        try {
+            updateUser(await api.setChatBg(value));
+        } catch (err) {
+            alert((err as Error).message);
+        } finally {
+            setUpdatingProfile(false);
+        }
+    }
+
+    async function handleChatBgUpload(e: React.ChangeEvent<HTMLInputElement>) {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) return;
+        if (!file.type.startsWith('image/')) { alert('Please choose an image file'); return; }
+        try {
+            await saveChatBg(await shrinkToDataUrl(file));
+        } catch (err) {
+            alert((err as Error).message);
         }
     }
 
@@ -748,6 +772,25 @@ export default function MainLayout() {
                                     <input type="color" value={bannerC1} onChange={e => { setBannerC1(e.target.value); setPreviewColors(true); }} aria-label="First colour" />
                                     <input type="color" value={bannerC2} onChange={e => { setBannerC2(e.target.value); setPreviewColors(true); }} aria-label="Second colour" />
                                     <button type="button" className="avatar-btn avatar-btn-secondary banner-btn" onClick={saveBannerColors} disabled={updatingProfile || !previewColors}>Apply</button>
+                                </div>
+                            </div>
+
+                            <div className="banner-editor chatbg-editor">
+                                <div className="desktop-install-title">Conversation background</div>
+                                <div className="chatbg-swatches">
+                                    {CHAT_BG_PRESETS.map(p => (
+                                        <button type="button" key={p.id} title={p.name} aria-label={p.name}
+                                            className={`chatbg-swatch ${user!.chatBg === `preset:${p.id}` ? 'active' : ''}`}
+                                            style={{ background: p.css }} disabled={updatingProfile}
+                                            onClick={() => saveChatBg(`preset:${p.id}`)} />
+                                    ))}
+                                </div>
+                                <div className="banner-editor-row">
+                                    <label className={`avatar-btn avatar-btn-secondary banner-btn ${updatingProfile ? 'disabled' : ''}`}>
+                                        Upload picture
+                                        <input type="file" accept="image/*" hidden onChange={handleChatBgUpload} disabled={updatingProfile} />
+                                    </label>
+                                    <button type="button" className="avatar-btn avatar-btn-secondary banner-btn" onClick={() => saveChatBg(null)} disabled={updatingProfile || !user!.chatBg}>Reset</button>
                                 </div>
                             </div>
 

@@ -170,6 +170,8 @@ export const api = {
     updateBanner: (patch: { bannerUrl?: string | null; bannerColors?: [string, string] | null }) =>
         request<User>('PATCH', '/api/me', patch),
 
+    setChatBg: (chatBg: string | null) => request<User>('PATCH', '/api/me', { chatBg }),
+
     setAppearOffline: (appearOffline: boolean) => request<User>('PATCH', '/api/me', { appearOffline }),
 
     updateProfile: (username?: string, avatarUrl?: string | null, gifsProtected?: boolean) =>
@@ -192,6 +194,8 @@ export interface User {
     bannerUrl?: string | null;
     bannerColor1?: string | null;
     bannerColor2?: string | null;
+    /** conversation background: "preset:<name>" or a picture as a data URL */
+    chatBg?: string | null;
     verified?: boolean;
 }
 

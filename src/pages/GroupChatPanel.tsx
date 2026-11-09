@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import type { Message, Group, BotCommands, MessageButton } from '../api';
 import { useAuth } from '../AuthContext';
+import { chatBgStyle } from '../chatBg';
 import Avatar from '../components/Avatar';
 import VerifiedBadge from '../components/VerifiedBadge';
 import { MessageContent } from '../components/MessageContent';
@@ -201,7 +202,7 @@ export default function GroupChatPanel({ group, channel }: GroupChatPanelProps) 
     });
 
     return (
-        <div className="chat-panel" {...zoneProps}>
+        <div className={`chat-panel${user?.chatBg ? ' has-chat-bg' : ''}`} style={chatBgStyle(user?.chatBg)} {...zoneProps}>
             {dragging && <div className="drop-overlay">Drop pictures or videos to send them</div>}
             <div className="messages-area" ref={areaRef} onScroll={onScroll}>
                 {messages.length === 0 && (

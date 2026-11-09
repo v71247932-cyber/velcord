@@ -2022,3 +2022,13 @@ html.desktop-app .viewer { top: 28px; }
 .pin-timer { text-align: center; margin-bottom: 14px; font-size: 15px; color: var(--text-secondary, #b5bac1); }
 .pin-timer strong { font-size: 22px; font-variant-numeric: tabular-nums; color: #fff; }
 .pin-input { text-align: center; letter-spacing: 12px; font-size: 26px !important; font-variant-numeric: tabular-nums; }
+
+/* ==================== CONVERSATION BACKGROUND ==================== */
+.chatbg-swatches { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.chatbg-swatch { width: 44px; height: 44px; border-radius: 8px; border: 2px solid transparent; cursor: pointer; padding: 0; }
+.chatbg-swatch:hover { border-color: var(--text-muted, #949ba4); }
+.chatbg-swatch.active { border-color: #fff; }
+.chatbg-swatch:disabled { opacity: .6; cursor: default; }
+/* the picture sits behind the messages: keep text readable */
+.chat-panel.has-chat-bg .messages-area { background: transparent; }
+.chat-panel.has-chat-bg .chat-input-area { background: transparent; }

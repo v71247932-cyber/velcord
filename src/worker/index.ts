@@ -708,11 +708,11 @@ async function handleSwitchAccount(request: Request, env: Env): Promise<Response
   if (!auth) return err('Unauthorized', 401);
   const other = await linkedAccount(env, auth.userId);
   if (!other) return err('This account has nothing to switch to', 403);
-  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV('users')} as avatar_url, ${BANNER_COLS('users')}, gifs_protected, appear_offline FROM users WHERE id = ?`)
+  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV('users')} as avatar_url, ${BANNER_COLS('users')}, chat_bg, gifs_protected, appear_offline FROM users WHERE id = ?`)
     .bind(other.id).first() as any;
   if (!user) return err('Account not found', 404);
   const token = await signJWT({ userId: user.id, username: user.username }, env.JWT_SECRET);
-  return json({ token, user: { id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user), gifsProtected: !!user.gifs_protected, appearOffline: !!user.appear_offline, tick: hasTick(user.username), canSwitch: true } });
+  return json({ token, user: { id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user), chatBg: user.chat_bg ?? null, gifsProtected: !!user.gifs_protected, appearOffline: !!user.appear_offline, tick: hasTick(user.username), canSwitch: true } });
 }
 
 // Makes (or finds) the "test" account, friends it with the owner and links the two so they can switch (needs the secret key)
@@ -827,30 +827,30 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
   if (!username || !password) return err('Username and password are required');
 
   const user = await env.DB.prepare(
-    `SELECT id, username, password_hash, avatar_color, ${AV('users')} as avatar_url, ${BANNER_COLS('users')}, gifs_protected, appear_offline FROM users WHERE username = ?`
-  ).bind(username).first() as { id: number; username: string; password_hash: string; avatar_color: string; avatar_url: string | null; gifs_protected?: number; appear_offline?: number } | null;
+    `SELECT id, username, password_hash, avatar_color, ${AV('users')} as avatar_url, ${BANNER_COLS('users')}, chat_bg, gifs_protected, appear_offline FROM users WHERE username = ?`
+  ).bind(username).first() as { id: number; username: string; password_hash: string; avatar_color: string; avatar_url: string | null; chat_bg?: string | null; gifs_protected?: number; appear_offline?: number } | null;
 
   if (!user) return err('Invalid username or password', 401);
   const ok = await verifyPassword(password, user.password_hash);
   if (!ok) return err('Invalid username or password', 401);
 
   const token = await signJWT({ userId: user.id, username: user.username }, env.JWT_SECRET);
-  return json({ token, user: { id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user), gifsProtected: !!user.gifs_protected, appearOffline: !!user.appear_offline, tick: hasTick(user.username), canSwitch: !!(await linkedAccount(env, user.id)) } });
+  return json({ token, user: { id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user), chatBg: user.chat_bg ?? null, gifsProtected: !!user.gifs_protected, appearOffline: !!user.appear_offline, tick: hasTick(user.username), canSwitch: !!(await linkedAccount(env, user.id)) } });
 }
 
 async function handleMe(request: Request, env: Env): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
-  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV('users')} as avatar_url, ${BANNER_COLS('users')}, gifs_protected, appear_offline FROM users WHERE id = ?`)
-    .bind(auth.userId).first() as { id: number; username: string; avatar_color: string; avatar_url: string | null; gifs_protected?: number; appear_offline?: number } | null;
+  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV('users')} as avatar_url, ${BANNER_COLS('users')}, chat_bg, gifs_protected, appear_offline FROM users WHERE id = ?`)
+    .bind(auth.userId).first() as { id: number; username: string; avatar_color: string; avatar_url: string | null; chat_bg?: string | null; gifs_protected?: number; appear_offline?: number } | null;
   if (!user) return err('User not found', 404);
-  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user), gifsProtected: !!user.gifs_protected, appearOffline: !!user.appear_offline, tick: hasTick(user.username), canSwitch: !!(await linkedAccount(env, user.id)) });
+  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user), chatBg: user.chat_bg ?? null, gifsProtected: !!user.gifs_protected, appearOffline: !!user.appear_offline, tick: hasTick(user.username), canSwitch: !!(await linkedAccount(env, user.id)) });
 }
 
 async function handleUpdateProfile(request: Request, env: Env): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!auth) return err('Unauthorized', 401);
-  const { username, avatarUrl, bannerUrl, bannerColors, gifsProtected, appearOffline } = await request.json() as { username?: string; avatarUrl?: string | null; bannerUrl?: string | null; bannerColors?: [string, string] | null; gifsProtected?: boolean; appearOffline?: boolean };
+  const { username, avatarUrl, bannerUrl, bannerColors, gifsProtected, appearOffline, chatBg } = await request.json() as { chatBg?: string | null; username?: string; avatarUrl?: string | null; bannerUrl?: string | null; bannerColors?: [string, string] | null; gifsProtected?: boolean; appearOffline?: boolean };
   if (appearOffline !== undefined) {
     const me = await env.DB.prepare('SELECT username FROM users WHERE id = ?').bind(auth.userId).first() as { username: string } | null;
     if (me?.username.toLowerCase() !== GIF_PROTECT_USER) return err('Only the idk account can choose to appear offline', 403);
@@ -888,6 +888,13 @@ async function handleUpdateProfile(request: Request, env: Env): Promise<Response
     await env.DB.prepare('UPDATE users SET banner_url = ? WHERE id = ?').bind(bannerUrl, auth.userId).run();
     if (bannerUrl !== null) await env.DB.prepare('UPDATE users SET banner_c1 = NULL, banner_c2 = NULL WHERE id = ?').bind(auth.userId).run();
   }
+  if (chatBg !== undefined) {
+    // Conversation background of this account: a preset name ("preset:night") or a small picture as a data URL
+    const okPreset = typeof chatBg === 'string' && /^preset:[a-z0-9-]{1,24}$/.test(chatBg);
+    const okImage = typeof chatBg === 'string' && /^data:image\/(png|jpe?g|webp);base64,/.test(chatBg) && chatBg.length <= 700000;
+    if (chatBg !== null && !okPreset && !okImage) return err('Invalid conversation background');
+    await env.DB.prepare('UPDATE users SET chat_bg = ? WHERE id = ?').bind(chatBg, auth.userId).run();
+  }
   if (bannerColors !== undefined) {
     if (bannerColors === null) {
       await env.DB.prepare('UPDATE users SET banner_c1 = NULL, banner_c2 = NULL WHERE id = ?').bind(auth.userId).run();
@@ -898,11 +905,11 @@ async function handleUpdateProfile(request: Request, env: Env): Promise<Response
     }
   }
 
-  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV('users')} as avatar_url, ${BANNER_COLS('users')}, gifs_protected, appear_offline FROM users WHERE id = ?`)
+  const user = await env.DB.prepare(`SELECT id, username, avatar_color, ${AV('users')} as avatar_url, ${BANNER_COLS('users')}, chat_bg, gifs_protected, appear_offline FROM users WHERE id = ?`)
     .bind(auth.userId).first() as any;
 
   if (!user) return err('User not found', 404);
-  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user), gifsProtected: !!user.gifs_protected, appearOffline: !!user.appear_offline, tick: hasTick(user.username), canSwitch: !!(await linkedAccount(env, user.id)) });
+  return json({ id: user.id, username: user.username, avatarColor: user.avatar_color, avatarUrl: avatarPath('avatars', user.id, user.avatar_url), ...bannerFields(user), chatBg: user.chat_bg ?? null, gifsProtected: !!user.gifs_protected, appearOffline: !!user.appear_offline, tick: hasTick(user.username), canSwitch: !!(await linkedAccount(env, user.id)) });
 }
 
 function previewOf(content: string | null): string | null {
@@ -1415,6 +1422,7 @@ function ensureSchema(env: Env): Promise<void> {
       try { await env.DB.prepare("ALTER TABLE bot_commands ADD COLUMN options TEXT NOT NULL DEFAULT '[]'").run(); } catch { /* already exists, or the table is made a bit later */ }
       try { await env.DB.prepare('ALTER TABLE groups ADD COLUMN avatar_url TEXT').run(); } catch { /* already exists */ }
       try { await env.DB.prepare('ALTER TABLE users ADD COLUMN gifs_protected INTEGER NOT NULL DEFAULT 0').run(); } catch { /* already exists */ }
+      try { await env.DB.prepare('ALTER TABLE users ADD COLUMN chat_bg TEXT').run(); } catch { /* already exists */ }
       try { await env.DB.prepare('ALTER TABLE users ADD COLUMN appear_offline INTEGER NOT NULL DEFAULT 0').run(); } catch { /* already exists */ }
       try { await env.DB.prepare('ALTER TABLE voice_participants ADD COLUMN sharing INTEGER NOT NULL DEFAULT 0').run(); } catch { /* already exists, or the table is created below */ }
       for (const col of ['banner_url TEXT', 'banner_c1 TEXT', 'banner_c2 TEXT']) {
